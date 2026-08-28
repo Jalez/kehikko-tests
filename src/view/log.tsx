@@ -41,15 +41,36 @@ export function Log({ lines, dropped }: { lines: string[]; dropped: number }) {
   if (!lines.length && !dropped) return null
 
   return (
-    <div>
+    <div className="flex min-w-0 flex-col gap-1">
       {dropped ? (
-        <p className="said">
+        <p className="text-[11px] leading-tight text-muted-foreground">
           The {lines.length} newest lines. {dropped} earlier {dropped === 1 ? 'line is' : 'lines are'} not kept — this
           app holds the tail of a run, not the whole of it.
         </p>
       ) : null}
+      {/*
+        The one box on this page allowed to scroll sideways.
+
+        `whitespace-pre` and `overflow-auto` together, deliberately: wrapping a
+        stack trace at 220 pixels destroys the column alignment that makes it
+        readable, and `overflow-hidden` would lose the right-hand half of every
+        line silently. A box with its own visible edges and its own scrollbar is
+        a thing a reader can understand — and because it is `overflow-auto`
+        rather than `overflow-visible`, the page AROUND it stays exactly as wide
+        as the frame. That is the whole of "the log scrolls and the pane does
+        not".
+
+        `overscroll-contain` so that reaching the bottom of the log does not
+        hand the scroll to the pane, and then to the canvas behind it.
+      */}
       <div
-        className="log"
+        /* Named for a probe rather than for a stylesheet. Every class on this
+           page is a utility now, so there is no `.log` left for a measuring
+           script to find the one box that is ALLOWED to scroll sideways — and a
+           test that cannot tell it from the page around it cannot check the rule
+           that matters. */
+        data-log=""
+        className="max-h-45 min-w-0 overflow-auto overscroll-contain rounded bg-muted p-1.5 font-mono text-[10.5px] leading-snug whitespace-pre"
         ref={box}
         onScroll={() => {
           const node = box.current

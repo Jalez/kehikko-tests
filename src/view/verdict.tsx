@@ -1,24 +1,49 @@
-import type { Run, Verdict } from '../../runs/store.ts'
+import type { Run, Verdict as Word } from '../../runs/store.ts'
+
+import { Badge } from '@/components/ui/badge.tsx'
 
 /**
- * A verdict, drawn.
+ * A verdict, drawn as a shadcn badge.
  *
  * ## Seven words, and the word is never dropped
  *
- * Six verdicts plus `none`, each with its own colour, and each one always
- * accompanied by its name in text. The square is a fast channel and the word is
- * the only one everybody can read: colour alone is a claim a person with any
- * kind of colour blindness cannot make out, and a page whose entire purpose is
- * telling "not run" from "passed" from "we do not know" cannot afford to say the
+ * Six verdicts plus `none`, each with its own badge variant, and each one always
+ * carrying its name in text. The dot is a fast channel and the word is the only
+ * one everybody can read: colour alone is a claim a person with any kind of
+ * colour blindness cannot make out, and a page whose entire purpose is telling
+ * "not run" from "passed" from "we do not know" cannot afford to say the
  * distinction in hue only.
  *
- * `none` is the one that is easiest to get wrong and matters most. A reference
- * nothing has been run against is NOT a failure and must not be drawn as one; it
- * gets the quietest colour on the page and a sentence rather than a mark, so that
- * red keeps meaning something.
+ * ## `running` is not a seventh terminal state
+ *
+ * The other six are things that HAPPENED. `running` is a process that is alive
+ * right now, and the page has to read as live rather than as having reached a
+ * blue conclusion. So it is the only badge with a ring and the only thing on the
+ * page that moves — the dot breathes, on a keyframe declared in `index.css`, and
+ * stops dead under `prefers-reduced-motion`. Nothing else animates, because a
+ * pulse beside a finished verdict would be a claim that something is still
+ * happening.
+ *
+ * ## `none` is the one that matters most
+ *
+ * A reference nothing has been run against is NOT a failure and must not be
+ * drawn as one — and it is not a pass either, which is the easier mistake to
+ * make in a redesign. It gets the quietest thing on the page: a dashed, muted
+ * badge that says the words "not run", never a tick and never a cross. And the
+ * badge is never the whole answer. The card prints the sentence in full beside
+ * it, because a chip is a thing a reader skims and this is the sentence the
+ * module exists to say. See `RefCard` in `src/app.tsx`.
  */
-export function Mark({ verdict }: { verdict: Verdict | 'none' }) {
-  return <span className={`mark m-${verdict}`} aria-hidden="true" />
+export function Verdict({ verdict, className }: { verdict: Word | 'none'; className?: string }) {
+  return (
+    <Badge variant={verdict} className={className}>
+      <span
+        aria-hidden="true"
+        className={`inline-block size-1.5 shrink-0 rounded-[1px] bg-current${verdict === 'running' ? ' tests-live-dot' : ''}`}
+      />
+      {verdict === 'none' ? 'not run' : verdict}
+    </Badge>
+  )
 }
 
 /**
@@ -36,17 +61,20 @@ export function counted(run: Run): string {
   return `${passed} passed, ${failed} failed`
 }
 
-/** The one-line reading of a run, with the verdict named. */
+/**
+ * The one-line reading of a run, with the verdict named.
+ *
+ * `flex-wrap` and `min-w-0` rather than a grid: a suite name and a "by" are both
+ * arbitrary strings, and at 220 pixels the honest thing for them to do is wrap
+ * onto a second line rather than push the pane wider than its frame.
+ */
 export function RunLine({ run, ago }: { run: Run; ago: string }) {
   return (
-    <div className="row runline">
-      <Mark verdict={run.verdict} />
-      <span className={`verdict v-${run.verdict}`}>{run.verdict}</span>
-      <span className="ref">{run.suite}</span>
-      <span className="said">
-        {run.verdict === 'running'
-          ? `started ${ago} ago by ${run.by}`
-          : `${counted(run)} · ${ago} ago · ${run.by}`}
+    <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1">
+      <Verdict verdict={run.verdict} />
+      <span className="font-mono text-xs font-semibold">{run.suite}</span>
+      <span className="text-[11px] leading-tight text-muted-foreground">
+        {run.verdict === 'running' ? `started ${ago} ago by ${run.by}` : `${counted(run)} · ${ago} ago · ${run.by}`}
       </span>
     </div>
   )

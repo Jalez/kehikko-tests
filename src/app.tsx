@@ -8,12 +8,13 @@ import { ID } from '../manifest.ts'
 import { ago } from '../runs/ago.ts'
 import type { Standing } from '../runs/store.ts'
 
+import { Button } from '@/components/ui/button.tsx'
 import { kinds, type Kind } from '@/live/kind.ts'
 import { run as startRun, standings, stop as stopRun, type Live } from '@/store/ask.ts'
 import { useRuns } from '@/store/use-runs.ts'
 import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
 import { Log } from '@/view/log.tsx'
-import { gloss, Mark, RunLine } from '@/view/verdict.tsx'
+import { counted, gloss, RunLine, Verdict } from '@/view/verdict.tsx'
 
 /**
  * The page.
@@ -33,15 +34,27 @@ import { gloss, Mark, RunLine } from '@/view/verdict.tsx'
  *
  * "not run", "passed" and "we do not know" are three different things.
  *
- * - A reference with no runs gets a **sentence**, not a mark: nothing has been
- *   run against it, that is not a pass and not a failure, and nobody has asked.
- *   Drawing it as red would train a reader to ignore red; drawing it as green
- *   would be a lie of exactly the kind this module exists to prevent.
+ * - A reference with no runs gets a **sentence**, not just a mark: nothing has
+ *   been run against it, that is not a pass and not a failure, and nobody has
+ *   asked. Drawing it as red would train a reader to ignore red; drawing it as
+ *   green would be a lie of exactly the kind this module exists to prevent; and
+ *   drawing it as a quiet grey chip and nothing else — which is what a redesign
+ *   reaches for — is the same lie said more politely, because a reader skims a
+ *   grey chip as "no problem here". The badge says "not run" and the sentence
+ *   below it says why that is not an answer. Both, always.
  * - A run in progress is `running` and is never rounded to a verdict.
  * - `timeout`, `stopped` and `crashed` are each their own word with their own
  *   gloss, because a hung suite, an abandoned one and a missing binary send a
  *   person to three different places, and calling any of them `failed` would send
  *   them to a fourth that has nothing for them.
+ *
+ * ## Everything measures the PANE
+ *
+ * There is not a viewport breakpoint in this file. The one responsive rule is
+ * `@min-[300px]/pane:`, which asks the container declared on `<body>` how wide
+ * IT is — see the essay in `index.css`. A `sm:` here would be true on every
+ * monitor this app will ever be opened on and would lay a 220-pixel column out
+ * as though it were a page.
  *
  * ## Identity is printed only when nothing is framing this page
  *
@@ -54,6 +67,15 @@ import { gloss, Mark, RunLine } from '@/view/verdict.tsx'
  * therefore does not blink.
  */
 const framed = typeof window !== 'undefined' && window.parent !== window
+
+/** Muted prose, which is most of what this page says. One spelling, used everywhere. */
+const SAID = 'text-[11px] leading-tight text-muted-foreground'
+/** A name the app holds verbatim: a ref, a suite. Monospace, because it is a key rather than a word. */
+const NAME = 'font-mono text-xs font-semibold'
+/** A refusal, kept beside whatever caused it. */
+const TROUBLE = 'border-l-2 border-failed pl-1.5 text-[11px] leading-tight text-failed'
+/** A card. `min-w-0` because everything inside it can hold an absolute path. */
+const CARD = 'flex min-w-0 flex-col gap-1.5 rounded-md border bg-card p-2'
 
 export function App() {
   /**
@@ -181,13 +203,27 @@ export function App() {
 
   const suites = state?.suites ?? []
   const busy = live.length
+  const slots = state?.slots ?? 0
+  /**
+   * Whether the next press will be refused, worked out BEFORE it is pressed.
+   *
+   * Two runs at a time is the whole of this app's concurrency, and the server
+   * enforces it with a sentence. A page that let the third press look identical
+   * to the first two and then printed a refusal beside one of them would be
+   * teaching a reader that Run sometimes does nothing — which is the single
+   * worst thing a button that starts a process can teach. So the cap is said out
+   * loud while it is full, in the same place the live count is said, and the
+   * press is still allowed: a slot can free between the render and the click,
+   * and a button disabled on a stale count is its own kind of lie.
+   */
+  const full = slots > 0 && busy >= slots
 
   return (
-    <div className="app" ref={shell}>
+    <div className="flex flex-col gap-2 p-2" ref={shell}>
       {framed ? null : (
-        <header>
-          <h1 className="title">Tests</h1>
-          <p className="said">
+        <header className="flex flex-col gap-1">
+          <h1 className="text-[13px] font-semibold">Tests</h1>
+          <p className={SAID}>
             How this project is tested, and what was actually run against a change. The suites are configured over this
             app’s own MCP door — a name, an argument array and a directory — and the runs happen in this process, on this
             machine. Nothing here reads a tracker or a CI pipeline: what is recorded is what this program ran.
@@ -195,28 +231,39 @@ export function App() {
         </header>
       )}
 
-      {state?.trouble ? <p className="trouble">{state.trouble}</p> : null}
+      {state?.trouble ? <p className={TROUBLE}>{state.trouble}</p> : null}
 
       {/*
-        Whether the page is actually live, said rather than implied.
+        Whether the page is actually live, said rather than implied, and what
+        the run slots are doing.
 
         A page whose stream has dropped and which went on drawing a still,
-        blue "running" would be claiming to be watching something it is not.
+        pulsing "running" would be claiming to be watching something it is not.
         `EventSource` reconnects on its own, so this is usually a flicker; when
         it is not, the reader needs to know that what they are looking at has
         stopped moving.
       */}
       {busy || !connected ? (
-        <p className="said">
-          {connected
-            ? `Watching live. ${busy} of ${state?.slots ?? 0} run slots busy.`
-            : 'The live stream is not attached, so what is on screen may have stopped moving. It reconnects by itself.'}
-        </p>
+        <div className={`flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 ${SAID}`}>
+          {connected ? (
+            <>
+              <Verdict verdict="running" />
+              <span>
+                Watching live. {busy} of {slots} run {slots === 1 ? 'slot' : 'slots'} busy.
+                {full ? ' Both are taken, so starting another suite will be refused until one finishes.' : ''}
+              </span>
+            </>
+          ) : (
+            <span className="text-failed">
+              The live stream is not attached, so what is on screen may have stopped moving. It reconnects by itself.
+            </span>
+          )}
+        </div>
       ) : null}
 
       {standing.length ? (
         <>
-          <p className="said">
+          <p className={SAID}>
             {selection.length
               ? `${standing.length === 1 ? 'One reference is' : `${standing.length} references are`} selected on the canvas.`
               : `Showing ${standing.length === 1 ? 'a reference' : `${standing.length} references`} you picked here. Selecting on a canvas replaces this.`}
@@ -251,9 +298,9 @@ export function App() {
           {live
             .filter((l) => !l.run.ref)
             .map((l) => (
-              <div className="card" key={l.run.id}>
+              <div className={CARD} key={l.run.id}>
                 <RunLine run={l.run} ago={ago(l.run.startedAt)} />
-                <p className="said">Not run for any particular reference.</p>
+                <p className={SAID}>Not run for any particular reference.</p>
                 <Log lines={l.lines} dropped={l.dropped} />
                 <Stop
                   id={l.run.id}
@@ -320,17 +367,18 @@ export function RefCard({
   const all = [...suites, ...gone]
 
   return (
-    <div className="card" data-ref={standing.ref}>
-      <div className="row">
-        <span className="ref">{standing.ref}</span>
-        <span className="said">{kind ?? 'reference'}</span>
+    <div className={CARD} data-ref={standing.ref}>
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1">
+        <span className={NAME}>{standing.ref}</span>
+        <span className={SAID}>{kind ?? 'reference'}</span>
       </div>
 
       {!standing.runs.length && !live.length ? (
         /* The sentence the whole module is for. Not a mark, not a colour, and
            emphatically not a cross: nobody has asked, which is neither a pass nor
-           a failure. */
-        <p className="said">
+           a failure. It is prose rather than a chip on purpose — see the essay at
+           the top of this file. */
+        <p className={SAID}>
           Nothing has been run against this on this machine. That is not a pass and not a failure — nobody has asked.
         </p>
       ) : null}
@@ -341,24 +389,38 @@ export function RefCard({
           const now = going.get(name)
           const said = trouble[`${standing.ref}|${name}`]
           return (
-            <div className="suite" key={name}>
-              <div className="suite-head">
-                <div className="row">
-                  <Mark verdict={now ? 'running' : (run?.verdict ?? 'none')} />
-                  <span className="ref">{name}</span>
-                  {gone.includes(name) ? <span className="said">no longer configured</span> : null}
+            <div className="flex min-w-0 flex-col gap-1 border-t pt-1.5" key={name}>
+              {/*
+                Name on the left, Run on the right — but only once the pane is
+                wide enough for that to be true. Under about 300 pixels the
+                button ends up alone on a line of its own anyway, and a
+                `justify-between` row that has wrapped leaves a gap that reads as
+                a mistake. The query measures the PANE, not the monitor.
+              */}
+              <div className="flex min-w-0 flex-col gap-1 @min-[300px]/pane:flex-row @min-[300px]/pane:items-baseline @min-[300px]/pane:justify-between">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1">
+                  <Verdict verdict={now ? 'running' : (run?.verdict ?? 'none')} />
+                  <span className={NAME}>{name}</span>
+                  {gone.includes(name) ? <span className={SAID}>no longer configured</span> : null}
                 </div>
                 {gone.includes(name) ? null : (
-                  <button onClick={() => onRun(name)} disabled={Boolean(now)}>
+                  <Button
+                    variant="outline"
+                    size="pane"
+                    className="self-start"
+                    onClick={() => onRun(name)}
+                    disabled={Boolean(now)}
+                    data-run={name}
+                  >
                     {now ? 'running…' : run ? 'run again' : 'run'}
-                  </button>
+                  </Button>
                 )}
               </div>
 
               {now ? (
                 <>
-                  <p className={`said verdict v-running`}>
-                    running · started {ago(now.run.startedAt)} ago by {now.run.by}
+                  <p className={SAID}>
+                    started {ago(now.run.startedAt)} ago by {now.run.by}
                     {now.run.passed === null && now.run.failed === null
                       ? ''
                       : ` · ${now.run.passed ?? 0} passed, ${now.run.failed ?? 0} failed so far`}
@@ -374,22 +436,29 @@ export function RefCard({
                 </>
               ) : run ? (
                 <>
-                  <RunLine run={run} ago={ago(run.startedAt)} />
-                  {gloss(run) ? <p className="said">{gloss(run)}</p> : null}
+                  {/* The verdict is already named by the badge in the head of
+                      this row, so this line carries only what the badge cannot:
+                      how many, how long ago, and who asked. Printing the word a
+                      second time is how a 220-pixel row ends up saying "passed"
+                      twice and nothing else. */}
+                  <p className={SAID}>
+                    {counted(run)} · {ago(run.startedAt)} ago · {run.by}
+                  </p>
+                  {gloss(run) ? <p className={SAID}>{gloss(run)}</p> : null}
                   {run.verdict === 'failed' || run.verdict === 'timeout' || run.verdict === 'crashed' ? (
                     <Log lines={run.tail.slice(-30)} dropped={run.dropped} />
                   ) : null}
                 </>
               ) : (
-                <p className="said">not run against this reference</p>
+                <p className={SAID}>not run against this reference</p>
               )}
 
-              {said ? <p className="trouble">{said}</p> : null}
+              {said ? <p className={TROUBLE}>{said}</p> : null}
             </div>
           )
         })
       ) : (
-        <p className="said">No suites are configured on this machine, so there is nothing that could be run.</p>
+        <p className={SAID}>No suites are configured on this machine, so there is nothing that could be run.</p>
       )}
     </div>
   )
@@ -407,7 +476,9 @@ export function RefCard({
  *
  * It is confirmed at all because stopping is destructive in a quiet way: the run
  * ends as `stopped`, which is honestly not a verdict, and somebody who has waited
- * four minutes for a suite would rather not lose it to one stray click.
+ * four minutes for a suite would rather not lose it to one stray click. The
+ * `destructive` variant is the first half of saying so and the second press is
+ * the second.
  */
 function Stop({
   id,
@@ -424,20 +495,22 @@ function Stop({
 }) {
   if (!confirming) {
     return (
-      <div className="buttons">
-        <button className="danger" onClick={onAsk} data-stop={id}>
+      <div className="flex flex-wrap items-center gap-1">
+        <Button variant="destructive" size="pane" onClick={onAsk} data-stop={id}>
           stop
-        </button>
+        </Button>
       </div>
     )
   }
   return (
-    <div className="buttons">
-      <span className="said">Stop it? Nothing will be learned about the code.</span>
-      <button className="danger" onClick={onConfirm} data-stop-confirm={id}>
+    <div className="flex flex-wrap items-center gap-1">
+      <span className={`w-full ${SAID}`}>Stop it? Nothing will be learned about the code.</span>
+      <Button variant="destructive" size="pane" onClick={onConfirm} data-stop-confirm={id}>
         yes, stop
-      </button>
-      <button onClick={onCancel}>keep going</button>
+      </Button>
+      <Button variant="outline" size="pane" onClick={onCancel}>
+        keep going
+      </Button>
     </div>
   )
 }
@@ -467,42 +540,42 @@ function SuiteList({
   return (
     <>
       {refs.length ? (
-        <div>
-          <p className="said">
+        <div className="flex flex-col gap-1.5">
+          <p className={SAID}>
             Something has been run against {refs.length === 1 ? 'one reference' : `${refs.length} references`}. Open one
             here without a canvas:
           </p>
-          <div className="buttons">
+          <div className="flex flex-wrap gap-1">
             {refs.map((ref) => (
-              <button key={ref} onClick={() => onPick(ref)} data-pick={ref}>
+              <Button variant="outline" size="pane" className="font-mono" key={ref} onClick={() => onPick(ref)} data-pick={ref}>
                 {ref}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
       ) : null}
 
-      <div className="card">
-        <p className="title">How this project is tested</p>
+      <div className={CARD}>
+        <p className="text-[13px] font-semibold">How this project is tested</p>
         {state.suites.length ? (
           state.suites.map((s) => (
-            <div className="suite" key={s.name}>
-              <div className="suite-head">
-                <span className="ref">{s.name}</span>
-                <button onClick={() => onRun(s.name)} data-run={s.name}>
+            <div className="flex min-w-0 flex-col gap-1 border-t pt-1.5" key={s.name}>
+              <div className="flex min-w-0 flex-col gap-1 @min-[300px]/pane:flex-row @min-[300px]/pane:items-baseline @min-[300px]/pane:justify-between">
+                <span className={NAME}>{s.name}</span>
+                <Button variant="outline" size="pane" className="self-start" onClick={() => onRun(s.name)} data-run={s.name}>
                   run
-                </button>
+                </Button>
               </div>
-              <p className="said">{s.what}</p>
-              <p className="cmd">{s.command.join(' ')}</p>
-              <p className="cmd">
+              <p className={SAID}>{s.what}</p>
+              <p className="font-mono text-[10.5px] text-muted-foreground [overflow-wrap:anywhere]">{s.command.join(' ')}</p>
+              <p className="font-mono text-[10.5px] text-muted-foreground [overflow-wrap:anywhere]">
                 in {s.dir} · killed after {Math.round(s.timeoutMs / 1000)}s · configured by {s.by}
               </p>
-              {trouble[`|${s.name}`] ? <p className="trouble">{trouble[`|${s.name}`]}</p> : null}
+              {trouble[`|${s.name}`] ? <p className={TROUBLE}>{trouble[`|${s.name}`]}</p> : null}
             </div>
           ))
         ) : (
-          <p className="said">
+          <p className={SAID}>
             Nothing has been configured on this machine. This app does not guess how a project is tested and will not
             run anything it was not told about — an agent says so over this app’s MCP door, with a name, an argument
             array and a directory, and then there is something here to run.
@@ -543,5 +616,5 @@ function Sightline({ sight, hasSuites }: { sight: ReturnType<typeof useRoadmap>[
               : sight.at === 'unread'
                 ? `The host has no reading for ${sight.epic}, so a selected reference will be called “reference” rather than named as an issue or a pull request. Everything else works.${tail}`
                 : `Nothing is selected on the canvas. Pick a reference and this pane shows what has been run against it.${tail}`
-  return <p className="said">{said}</p>
+  return <p className={SAID}>{said}</p>
 }

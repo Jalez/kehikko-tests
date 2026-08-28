@@ -3,6 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 
 import type { Run, Standing } from '../runs/store.ts'
 import { RefCard } from '../src/app.tsx'
+import { Verdict } from '../src/view/verdict.tsx'
 
 /**
  * What the card SAYS, asserted against the real component.
@@ -112,4 +113,64 @@ test('nothing in the card is a long unbroken string that could widen a pane', ()
   for (const el of container.querySelectorAll('*')) {
     expect((el as HTMLElement).style.width).toBe('')
   }
+})
+
+/**
+ * The port onto shadcn, asserted where it could silently come undone.
+ *
+ * These are not tests of Tailwind. They are tests of the three claims the port
+ * was allowed to make: that six verdicts stay six, that `running` still reads as
+ * a process rather than as a seventh conclusion, and that a reference nobody has
+ * run anything against still gets a SENTENCE and not just a quiet chip. Each is
+ * a thing a later redesign would break without breaking anything else in this
+ * file, which is the only reason to write them down.
+ */
+
+test('each of the six verdicts is drawn as its own badge, and names itself', () => {
+  const words = ['passed', 'failed', 'running', 'timeout', 'stopped', 'crashed'] as const
+  const looks = new Set<string>()
+  for (const word of words) {
+    const { container, unmount } = render(<Verdict verdict={word} />)
+    const badge = container.querySelector('[data-slot="badge"]')
+    expect(badge).toBeTruthy()
+    expect(badge?.textContent).toContain(word)
+    looks.add(badge?.className ?? '')
+    unmount()
+  }
+  /* Six verdicts, six appearances. A variant list that quietly mapped `timeout`
+     onto the same classes as `failed` would pass every other test in this file,
+     and would be exactly the collapse this module exists to prevent. */
+  expect(looks.size).toBe(6)
+})
+
+test('`running` is drawn as live rather than as a seventh terminal state', () => {
+  const { container } = render(<Verdict verdict="running" />)
+  /* The one moving thing on the page. Nothing that has FINISHED may carry it,
+     because a pulse beside a verdict claims something is still happening. */
+  expect(container.querySelector('.tests-live-dot')).toBeTruthy()
+  for (const word of ['passed', 'failed', 'timeout', 'stopped', 'crashed', 'none'] as const) {
+    const { container: other, unmount } = render(<Verdict verdict={word} />)
+    expect(other.querySelector('.tests-live-dot')).toBeNull()
+    unmount()
+  }
+})
+
+test('a reference nothing has been run against gets the sentence AND a badge that says "not run"', () => {
+  /* The chip alone is the failure mode a redesign reaches for: a quiet grey "no
+     result" reads, to somebody skimming, as "no problem here". So the badge is
+     dashed and says the words, and the sentence underneath it says why that is
+     not an answer. Both, always. */
+  const { container } = draw(standing([]), ['unit'])
+  expect(container.querySelector('[data-slot="badge"]')?.textContent).toContain('not run')
+  expect(screen.getByText(/not a pass and not a failure/)).toBeTruthy()
+  expect(screen.getByText('not run against this reference')).toBeTruthy()
+})
+
+test('every control on the card is a shadcn button', () => {
+  /* The whole point of the port. A hand-rolled `<button>` slipping back in is
+     invisible in a screenshot at 220px and obvious here. */
+  const { container } = draw(standing([run()]))
+  const buttons = [...container.querySelectorAll('button')]
+  expect(buttons.length).toBeGreaterThan(0)
+  for (const b of buttons) expect(b.getAttribute('data-slot')).toBe('button')
 })

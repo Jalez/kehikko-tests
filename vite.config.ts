@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { resolve } from 'node:path'
 
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { WELL_KNOWN } from 'roadmap-module-protocol'
 import { defineConfig, type Plugin } from 'vite'
@@ -350,7 +351,17 @@ async function body(request: IncomingMessage): Promise<Record<string, unknown> |
  * from the host it talks to is a module testing something nobody ships.
  *
  * The `@` alias below is a different thing entirely — it points inside this
- * repository, at `src`.
+ * repository, at `src`, and is what shadcn's generated components import
+ * through.
+ *
+ * ## Tailwind is a plugin here and there is no `tailwind.config.js`
+ *
+ * Version 4 is configured in CSS. The palette, the container, the verdict
+ * colours and the `dark` variant are all in `src/index.css` under `@theme` and
+ * `@custom-variant`, and a JavaScript config file alongside them would be a
+ * second place to answer the same questions — which is how a token ends up
+ * defined twice with two values and a component picking whichever the build
+ * happened to resolve last. The plugin below is the whole of the wiring.
  */
 export default defineConfig({
   /**
@@ -361,7 +372,7 @@ export default defineConfig({
    * fetched.
    */
   base: './',
-  plugins: [doors(), react()],
+  plugins: [doors(), react(), tailwindcss()],
   resolve: { alias: { '@': resolve(import.meta.dirname, 'src') } },
   build: { outDir: 'dist', emptyOutDir: true },
 })

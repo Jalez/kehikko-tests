@@ -1,50 +1,68 @@
+@import 'tailwindcss';
+
 /**
- * The whole of this page's appearance, and one rule about LAYOUT that matters
- * more here than the colours do.
+ * The palette, in shadcn's own token names, plus the seven verdict colours — and
+ * two rules about LAYOUT that matter more here than any of the colours do.
+ *
+ * ## The dark variant follows the HOST, not the machine
+ *
+ * `@custom-variant dark` below is bound to the `.dark` class and to nothing
+ * else. That is deliberate and it is the whole reason it is written out rather
+ * than left at Tailwind's default: Tailwind's stock `dark:` also fires on
+ * `prefers-color-scheme`, and this page's theme is a fact the HOST states in
+ * `roadmap.context.theme`. A pane told "light" by the canvas, on a machine set
+ * to dark, would otherwise draw half its components dark — the tokens obeying
+ * the host and every `dark:` utility obeying the OS, in the same pane, at the
+ * same time.
+ *
+ * The media query further down is a different thing and is not that: it moves
+ * the TOKENS before any host has spoken — a page opened directly, or a frame in
+ * its first hundred milliseconds — and it is guarded on `:not(.light)` so that a
+ * host's explicit "light" beats a machine set to dark the moment it arrives.
  *
  * ## Container queries, not viewport breakpoints
  *
  * This page's normal case is a pane 220 to 400 pixels wide inside somebody's
- * canvas, on a monitor two thousand pixels across. Every viewport media query
- * would therefore fire — the page would lay itself out for a screen it has three
- * per cent of. So the `<body>` is a container and the two responsive rules in
- * this file are `@container` rules, measuring the pane and nothing else.
+ * canvas, on a monitor two thousand pixels across. Every viewport breakpoint
+ * Tailwind ships would therefore fire — `lg:` is true, `xl:` is true — and the
+ * page would lay itself out for a screen it has three per cent of. So the
+ * `<body>` is a named container, every responsive class in this app is an
+ * `@min-[…]/pane:` class, and the only thing any of them ever measures is the
+ * pane.
  *
  * ## Nothing overflows sideways, ever
  *
  * A pane that scrolls horizontally is a pane where half a sentence is behind an
  * edge nobody thinks to drag. `overflow-x: hidden` on the body would HIDE that
- * rather than fix it, so it is not here. What is here is `overflow-wrap: anywhere`
- * on the prose and `min-width: 0` on every flex child, which are the two things
- * that actually stop a long path, a branch name or an unbroken URL pushing the
- * layout wider than the frame — and a configured suite is FULL of long absolute
- * paths, so this is load-bearing rather than defensive.
+ * rather than fix it, so it is not here: what is here is `overflow-wrap` on the
+ * prose and `min-w-0` on the flex children, which are the two things that
+ * actually stop a long absolute path — and a configured suite is FULL of them —
+ * pushing the layout wider than the frame.
  *
- * The one exception is the output log, and it is a deliberate one. Test output
- * is column-aligned: a stack trace or a diff wrapped at 220 pixels is unreadable
- * in a different way from one that is cut off. So the log scrolls horizontally
+ * The one exception is the output log, and it is a deliberate one. Test output is
+ * column-aligned: a stack trace or a diff wrapped at 220 pixels is unreadable in
+ * a different way from one that is cut off. So the log scrolls horizontally
  * INSIDE ITS OWN BOX, which is a thing a reader can see the edges of and drag,
  * and the page around it still does not.
- *
- * ## Why plain CSS
- *
- * A sibling module uses Tailwind and shadcn, and this one does not, which is
- * worth one sentence rather than a silent divergence: that module draws a
- * checklist of rich rows with buttons, badges and cards, and this one draws a
- * handful of verdicts and a monospace log. The dependency is real — a build step
- * and a dozen packages — and buys nothing at this size. The tokens below are the
- * same ones, so a component lifted from there would land in a page that already
- * has the variables it names.
  */
+
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.45 0 0);
   --border: oklch(0.9 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
   --accent: oklch(0.96 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --radius: 0.5rem;
 
   /**
    * The six verdicts, each with a colour of its own, and a seventh for the
@@ -59,35 +77,53 @@
    *
    * The words are never dropped in favour of the colour. Colour alone is a claim
    * a person with any kind of colour blindness cannot read, and every verdict on
-   * this page is spelled out beside its mark.
+   * this page is spelled out beside its badge.
    */
-  --passed: oklch(0.6 0.15 150);
-  --failed: oklch(0.58 0.2 25);
-  --running: oklch(0.65 0.16 240);
-  --timeout: oklch(0.68 0.16 75);
-  --stopped: oklch(0.6 0.02 260);
-  --crashed: oklch(0.55 0.13 320);
-  --none: oklch(0.68 0.02 260);
+  --passed: oklch(0.52 0.15 150);
+  --failed: oklch(0.53 0.2 25);
+  --running: oklch(0.52 0.16 250);
+  --timeout: oklch(0.52 0.13 60);
+  --stopped: oklch(0.48 0.02 260);
+  --crashed: oklch(0.48 0.16 320);
+  --unrun: oklch(0.55 0.02 260);
 }
 
 /*
  * Dark, twice.
  *
  * `.dark` is set by the wire when a host says so, and the media query is what
- * answers before any host has spoken — a page opened directly, or a frame in its
- * first hundred milliseconds. `.light` is the escape hatch that makes a host's
- * explicit "light" beat a machine set to dark, which is why the media query is
- * guarded on its absence rather than left to win.
+ * answers before any host has spoken. `.light` is the escape hatch that makes a
+ * host's explicit "light" beat a machine set to dark, which is why the media
+ * query is guarded on its absence rather than left to win.
+ *
+ * The verdict colours are lifted rather than reused. A hue that reads at 0.52
+ * lightness on white is a hue nobody can pick out of a 0.145 background, and a
+ * page whose entire job is telling `timeout` from `failed` at a glance cannot
+ * afford two verdicts that look alike in dark.
  */
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
     --muted: oklch(0.24 0 0);
     --muted-foreground: oklch(0.72 0 0);
     --border: oklch(1 0 0 / 14%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
     --accent: oklch(0.28 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.985 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+
+    --passed: oklch(0.78 0.16 150);
+    --failed: oklch(0.72 0.18 25);
+    --running: oklch(0.78 0.13 250);
+    --timeout: oklch(0.82 0.15 75);
+    --stopped: oklch(0.74 0.02 260);
+    --crashed: oklch(0.78 0.14 320);
+    --unrun: oklch(0.7 0.02 260);
   }
 }
 
@@ -95,243 +131,108 @@
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
   --muted: oklch(0.24 0 0);
   --muted-foreground: oklch(0.72 0 0);
   --border: oklch(1 0 0 / 14%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
   --accent: oklch(0.28 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+
+  --passed: oklch(0.78 0.16 150);
+  --failed: oklch(0.72 0.18 25);
+  --running: oklch(0.78 0.13 250);
+  --timeout: oklch(0.82 0.15 75);
+  --stopped: oklch(0.74 0.02 260);
+  --crashed: oklch(0.78 0.14 320);
+  --unrun: oklch(0.7 0.02 260);
 }
 
-* {
-  box-sizing: border-box;
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-passed: var(--passed);
+  --color-failed: var(--failed);
+  --color-running: var(--running);
+  --color-timeout: var(--timeout);
+  --color-stopped: var(--stopped);
+  --color-crashed: var(--crashed);
+  --color-unrun: var(--unrun);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
 }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-/*
- * The container every responsive rule in this app measures. Named, so a
- * `@container pane` rule cannot accidentally attach itself to some nested
- * container a component introduces later.
- */
-body {
-  container: pane / inline-size;
-  -webkit-font-smoothing: antialiased;
-}
-
-p,
-li,
-summary,
-code,
-h1,
-h2 {
-  overflow-wrap: anywhere;
-  margin: 0;
-}
-
-.app {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-}
-
-.said {
-  font-size: 11px;
-  line-height: 1.35;
-  color: var(--muted-foreground);
-}
-
-.title {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-/* Every flex child that can hold a long string. Without this the string sets the
-   width of the row and the row sets the width of the page. */
-.row,
-.card,
-.suite,
-.runline {
-  min-width: 0;
-}
-
-.card {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--card);
-  padding: 6px 7px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 6px;
-}
-
-.ref {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.mark {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  flex: none;
-  /* Aligned to the text baseline rather than to the box, so a wrapped row does
-     not leave the square hanging above the sentence it belongs to. */
-  transform: translateY(1px);
-}
-
-.verdict {
-  font-weight: 600;
-  font-size: 11.5px;
-}
-
-.v-passed { color: var(--passed); }
-.v-failed { color: var(--failed); }
-.v-running { color: var(--running); }
-.v-timeout { color: var(--timeout); }
-.v-stopped { color: var(--stopped); }
-.v-crashed { color: var(--crashed); }
-.v-none { color: var(--none); }
-
-.m-passed { background: var(--passed); }
-.m-failed { background: var(--failed); }
-.m-running { background: var(--running); }
-.m-timeout { background: var(--timeout); }
-.m-stopped { background: var(--stopped); }
-.m-crashed { background: var(--crashed); }
-.m-none { background: var(--none); }
-
-/*
- * A run in progress. The animation is a fact about the page being live, and it
- * is the ONLY moving thing here — a spinner beside a finished verdict would be a
- * claim that something is still happening.
- */
-.m-running {
-  animation: pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
+@layer base {
+  * {
+    border-color: var(--border);
   }
+
+  html,
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  /*
+   * The container every responsive class in this app measures. Named, so an
+   * `@min-[300px]/pane:` class cannot accidentally attach itself to some nested
+   * container a component introduces later.
+   */
+  body {
+    container: pane / inline-size;
+    -webkit-font-smoothing: antialiased;
+    font-synthesis-weight: none;
+  }
+
+  p,
+  li,
+  summary,
+  code,
+  h1,
+  h2 {
+    overflow-wrap: anywhere;
+  }
+}
+
+/*
+ * A run in progress, and the ONLY moving thing on this page.
+ *
+ * A pulse beside a finished verdict would be a claim that something is still
+ * happening, so nothing but `running` is ever allowed to animate. It is a
+ * keyframe of its own rather than Tailwind's `animate-pulse` because the badge's
+ * own opacity has to stay at 1 — it is the dot inside it that breathes, and a
+ * whole badge fading in and out at 220 pixels reads as a rendering fault rather
+ * than as liveness.
+ */
+@keyframes tests-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.tests-live-dot {
+  animation: tests-pulse 1.2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .m-running {
+  .tests-live-dot {
     animation: none;
-  }
-}
-
-button {
-  font: inherit;
-  font-size: 11px;
-  padding: 2px 7px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--accent);
-  color: var(--foreground);
-  cursor: pointer;
-  /* A pane is 220px wide and a suite may be called `integration-postgres`. The
-     button wraps rather than widening the page. */
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  text-align: left;
-}
-
-button:hover:not(:disabled) {
-  border-color: var(--muted-foreground);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-button.danger {
-  color: var(--failed);
-}
-
-.buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.suite {
-  border-top: 1px solid var(--border);
-  padding-top: 5px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.cmd {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
-  color: var(--muted-foreground);
-}
-
-/*
- * The log, and the one box on this page allowed to scroll sideways.
- *
- * See the essay at the top: wrapping a stack trace at 220 pixels destroys the
- * alignment that makes it readable, and hiding the overflow would lose it
- * silently. A box with its own visible edges and its own scrollbar is a thing a
- * reader can understand; the page around it stays exactly as wide as the frame.
- */
-.log {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
-  line-height: 1.35;
-  background: var(--muted);
-  border-radius: 4px;
-  padding: 4px 5px;
-  max-height: 180px;
-  overflow: auto;
-  white-space: pre;
-  overscroll-behavior: contain;
-}
-
-.log .err {
-  color: var(--failed);
-}
-
-.trouble {
-  font-size: 11px;
-  color: var(--failed);
-  border-left: 2px solid var(--failed);
-  padding-left: 6px;
-}
-
-/*
- * The one width rule, and it measures the PANE.
- *
- * Under about 300 pixels the suite rows stop trying to put a name and a button
- * on one line, because at that width the button ends up alone on a line of its
- * own anyway and the gap reads as a mistake.
- */
-@container pane (min-width: 300px) {
-  .suite-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 6px;
   }
 }

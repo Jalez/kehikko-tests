@@ -90,6 +90,21 @@ for a process that is not there.
 has no stream and an agent that asked to run the tests wants the answer rather
 than a receipt.
 
+## The page is on the house stack
+
+Tailwind v4 and shadcn, the same as every other module here: `components.json`,
+`src/components/ui/`, `src/lib/utils.ts`, and the Vite plugin. There is no
+`tailwind.config.js` and there must not be — version 4 is configured in CSS, and
+the palette, the container and the `dark` variant are all in `src/index.css`.
+
+Two rules in that file are load-bearing rather than cosmetic, and both are argued
+out where they live. The `dark` variant is bound to the `.dark` class the wire
+sets from `roadmap.context.theme`, NOT to `prefers-color-scheme`, so a pane told
+"light" on a machine set to dark does not come out half of each. And every
+responsive class measures the PANE — `@min-[300px]/pane:`, against the container
+declared on `<body>` — because a viewport breakpoint fires on the monitor, and
+this page's normal case is three per cent of one.
+
 ## Where things are
 
     manifest.ts        what this app says about itself, and what it refuses to declare
@@ -100,3 +115,5 @@ than a receipt.
     runs/store.ts      what was run against what, and the six verdicts
     runs/ago.ts        the one function both sides need, and why it is not in the store
     src/               the page: the wire, the stream, the cards
+    src/index.css      the palette, the seven verdict colours, and the pane container
+    src/components/ui/ shadcn's button and badge, with the six verdicts as variants
