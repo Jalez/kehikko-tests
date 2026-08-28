@@ -150,6 +150,21 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   name: 'Tests',
   version: VERSION,
   summary: 'How this project is tested, and what was actually run against the change you are looking at.',
+  /**
+   * What an agent should do about this module being here.
+   *
+   * Not what it shows — the summary says that. This says what its PRESENCE
+   * OBLIGES, and a host composes it into the prompt every agent on the canvas
+   * is handed, attributed to this module.
+   */
+  guidance:
+    'This project has named suites and they can be run against the change you are working on, so ' +
+    'run them rather than reasoning about whether they would pass. Nothing is finished on the ' +
+    'strength of a diff looking right. A change with nothing run against it is not a pass and not ' +
+    'a failure — nobody has asked — so say that plainly rather than reporting silence as success. ' +
+    'Use the suites that are configured instead of inventing a command: they are how this project ' +
+    'says it is tested. If a run fails, report the verdict and the output, and do not re-run until ' +
+    'it is green while changing nothing.',
   entry: '/app',
   modes: [{ id: 'tests', label: 'Tests', scope: 'epic' }],
   mcp: {
