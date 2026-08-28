@@ -5,7 +5,6 @@
   "type": "module",
   "description": "How a project is tested, kept as named suites an agent configures over MCP; running one of them under a bound; and what was run against a merge request or a pull request. An app: its own store, its own page, its own port. A host may frame it, and then it learns which reference the canvas has picked out.",
   "scripts": {
-    "build": "vite build",
     "dev": "vite",
     "start": "vite",
     "register": "bun run register.ts",

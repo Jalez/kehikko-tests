@@ -64,7 +64,7 @@ function doors(): Plugin {
       const swept = sweep()
       if (swept) {
         server.config.logger.info(
-          `tests: ${swept} run${swept === 1 ? '' : 's'} were left saying "running" by a previous server and are now recorded as crashed.`,
+          `tests: ${swept} run${swept === 1 ? ' was' : 's were'} left saying "running" by a previous server and ${swept === 1 ? 'is' : 'are'} now recorded as crashed.`,
         )
       }
 
