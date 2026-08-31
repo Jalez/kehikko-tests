@@ -10,7 +10,8 @@ import { defineConfig, type Plugin } from 'vite'
 import { MANIFEST, TICKET, answer } from './doors.ts'
 import { ID, PREFERRED_PORT } from './manifest.ts'
 import { page } from './page/document.ts'
-import { active, MAX_LIVE, stopAll, subscribe } from './runs/spawn.ts'
+import { stopAll } from './runs/spawn.ts'
+import { attach, frame } from './runs/stream.ts'
 import { sweep } from './runs/store.ts'
 
 /**
@@ -196,13 +197,19 @@ function doors(): Plugin {
  * interactive runner — the two checks above are what has to be written first,
  * and this comment is the note saying so.
  *
- * ## What is streamed
+ * ## What is streamed, and where that is decided
  *
  * A run starting, every line of output as it is read, the pass and fail counts
  * whenever they change, and the run ending with its verdict. The first event on
  * every connection is a `hello` carrying every run alive right now WITH what it
  * has already said — so a page that connects mid-run is not staring at an empty
  * box waiting for the next line.
+ *
+ * None of that is decided HERE. It is in `runs/stream.ts`, because `serve.ts`
+ * serves the same stream over a built page and the two must not be two
+ * implementations of one protocol — see the essay there. What is left in this
+ * function is node's half of it: the headers, `setNoDelay`, and which of node's
+ * several ways of saying "the browser is gone" to listen for.
  *
  * ## What happens when the page reloads mid-run
  *
@@ -236,41 +243,31 @@ function events(request: IncomingMessage, response: ServerResponse): void {
      whose whole point is immediacy turns "live" into "live, in bursts". */
   request.socket.setNoDelay(true)
 
-  const write = (event: string, data: unknown) => {
-    /* A write to a socket the browser closed a moment ago throws, and it must
-       not take the run down with it. */
-    try {
-      response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-    } catch {
-      /* ignore */
-    }
-  }
-
-  write('hello', { active: active().map((a) => ({ run: a.run, lines: a.lines, dropped: a.dropped })), slots: MAX_LIVE })
-
-  const off = subscribe((e) => write(e.kind, e))
-
-  /**
-   * A comment frame every twenty seconds.
-   *
-   * Not a heartbeat for the application's sake — the page does not care — but
-   * for everything between it and this process. An idle TCP connection through a
-   * proxy or a laptop's power manager is a connection something eventually
-   * decides is dead, and a stream that goes quiet during a slow test suite is
-   * exactly the case that would break. A line beginning with a colon is an SSE
-   * comment and is discarded by the client.
-   */
-  const beat = setInterval(() => write('beat', { at: Date.now() }), 20_000)
+  const detach = attach({
+    write(event, data) {
+      /* A write to a socket the browser closed a moment ago throws, and it must
+         not take the run down with it. `Sink` states that the adapter owns this,
+         because only the adapter knows what a dead connection looks like in its
+         own transport. */
+      try {
+        response.write(frame(event, data))
+      } catch {
+        /* ignore */
+      }
+    },
+  })
 
   const close = () => {
-    clearInterval(beat)
-    off()
+    detach()
     try {
       response.end()
     } catch {
       /* ignore */
     }
   }
+  /* Both, because node fires one or the other depending on how the connection
+     died. `attach`'s detach is a no-op the second time, which is what makes
+     listening for both safe rather than something to be careful about. */
   request.on('close', close)
   request.on('error', close)
 }

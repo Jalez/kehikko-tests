@@ -63,3 +63,32 @@ const PAGE_SHELL = `<!doctype html>
 export function page(ticket: string): string {
   return PAGE_SHELL.replace('__TICKET__', () => JSON.stringify(ticket))
 }
+
+/**
+ * The ticket a BUILT page is compiled with, and which `serve.ts` swaps out on
+ * every request.
+ *
+ * A build happens once and a ticket is minted once per process, so the two
+ * cannot be the same act: a `dist/index.html` with a real ticket baked into it
+ * would be a write credential sitting in a build artefact, valid only for
+ * whichever process happened to run the build and refused by every process
+ * afterwards. So the build compiles this sentinel and the server replaces it per
+ * request — which also keeps the promise `/app` has always made, that the ticket
+ * in the document belongs to the process that served it.
+ *
+ * The replacement is done on the QUOTED form. `page()` runs its argument through
+ * `JSON.stringify`, so what lands in `dist/index.html` is this string with its
+ * quotes, and matching the quotes is what makes the swap unambiguous — a bare
+ * sentinel could in principle turn up inside a bundled asset's contents, and a
+ * replacement that hit one would corrupt a script rather than a ticket.
+ *
+ * The value is deliberately a sentence rather than a plausible-looking UUID. If
+ * the substitution ever fails, this is what the page's ticket becomes and every
+ * write is refused — and then the thing visible in the browser is a string that
+ * says what happened, rather than a random-looking id indistinguishable from a
+ * real one that has simply gone stale.
+ */
+export const TICKET_SLOT = 'ticket-not-substituted-by-the-server'
+
+/** The exact text, quotes included, that `serve.ts` looks for in the built document. */
+export const TICKET_SLOT_JSON = JSON.stringify(TICKET_SLOT)
