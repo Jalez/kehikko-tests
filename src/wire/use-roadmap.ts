@@ -1,15 +1,46 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { HostRefused, connect, type Host, type HostEvents, type Refusal } from './host.ts'
+import {
+  HostRefused,
+  connect,
+  type Connection,
+  type HostEvents,
+  type Refusal,
+} from 'roadmap-module-protocol/client'
 
 /**
  * The bridge, as one React value.
  *
- * `host.ts` is the wire and knows no React; this is the only file that turns
- * messages into state, and it is deliberately the only one. Two places driving
- * "what can this page see" would eventually disagree, and this module's whole
- * honesty rests on telling `unasked` from `unknown` — not having looked from
- * having looked and found nothing.
+ * `roadmap-module-protocol/client` is the wire and knows no React; this is the
+ * only file that turns messages into state, and it is deliberately the only
+ * one. Two places driving "what can this page see" would eventually disagree,
+ * and this module's whole honesty rests on telling `unasked` from `unknown` —
+ * not having looked from having looked and found nothing.
+ *
+ * ## What used to be underneath this
+ *
+ * `wire/host.ts` and `wire/mailbox.ts` — 416 lines, near-identical to the copy
+ * in eight sibling modules. They are one import now, and two things this page
+ * used to do by hand went with them.
+ *
+ * The first is the twenty-line box below `connect` that caught an arrival which
+ * came too early and replayed it once the assignment was done. It worked, and
+ * it was the wrong shape: it fixed this module's copy of a hazard every module
+ * had. The client splits `connect` from `listen()` so the ordering is three
+ * plain lines in the order they happen.
+ *
+ * The second is the field-by-field rebuild of the context. What stood in
+ * `host.ts` named `epic`, `project`, `theme`, `selection`, `prompt` and
+ * `pinned` — and therefore dropped `projectPath` and `kehikko` on every
+ * `roadmap.context` this page received, silently, with no error and no warning.
+ * The client spreads the message instead, so both now arrive. Nothing here
+ * reads either of them yet; what changed is that they reach the code that
+ * might, rather than being discarded one line before anything could.
+ *
+ * This hook survives on top of the core client rather than being replaced by
+ * `…/client/react`, because the six-way `Sight` below is the whole point of
+ * this module and a hook handing back a nullable context would make every one
+ * of those six absences a thing derived downstream.
  *
  * ## The grace, and why there is one
  *
@@ -72,7 +103,7 @@ export type GotoHandler = NonNullable<HostEvents['onGoto']>
 export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
   const [sight, setSight] = useState<Sight>({ at: 'listening' })
   const [selection, setSelection] = useState<string[]>([])
-  const host = useRef<Host | null>(null)
+  const host = useRef<Connection | null>(null)
 
   /**
    * The handler, held in a ref and read at the moment a `goto` arrives.
@@ -230,46 +261,36 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
     }
 
     /**
-     * The connection is stored BEFORE the greeting is acted on, and the order is
+     * The connection is stored BEFORE it is told to listen, and the order is
      * the whole of a bug that made a sibling module hang forever.
      *
-     * `connect` subscribes to the mailbox, and the mailbox replays what has
-     * already arrived SYNCHRONOUSLY, inside that call. The greeting almost always
-     * arrives before React mounts — that is the entire reason the mailbox exists
-     * — so `onHello` fires on this line, before `host.current` has been assigned.
-     * `look` reads `host.current`, finds null, returns early, and leaves the page
-     * reading "Asking about …". It starts no timer either, so nothing ever times
-     * out: not a slow answer, not a refusal, just a sentence that never changes.
+     * `listen()` subscribes to the mailbox, and the mailbox replays what has
+     * already arrived SYNCHRONOUSLY, inside that call. The greeting almost
+     * always arrives before React mounts — that is the entire reason the mailbox
+     * exists — so `onHello` fires on that line. `look` reads `host.current`, and
+     * if the assignment had not happened it would find null, return early, and
+     * leave the page reading "Asking about …". It starts no timer either, so
+     * nothing ever times out: not a slow answer, not a refusal, just a sentence
+     * that never changes.
      *
      * Worse, it works often enough to look fine. When the host happens to greet
      * after this effect returns — a slow module, a reload, a busy machine — the
      * assignment has already happened and everything behaves. A race whose good
      * outcome is the common one is the kind that ships.
      *
-     * So anything that fires too early is held and delivered the moment the
-     * assignment is done. Not deferred to a microtask: that would fix the symptom
-     * and leave the next reader to work out why the order mattered.
+     * What stood here was twenty lines that caught the too-early arrival in a
+     * box and replayed it once the assignment was done. It worked, and it was
+     * the wrong shape: it fixed this module's copy of a hazard every module had.
+     * `connect` and `listen` are two calls now, so the ordering is three plain
+     * lines that read in the order they happen.
      */
-    type Arrival = [context: { epic: string | null; theme: 'light' | 'dark'; selection: string[] }, greeting: boolean]
-    let ready = false
-    /* A box rather than a bare `let`, and only because of the compiler: this is
-       assigned inside a callback that `connect` invokes, which the flow analysis
-       cannot see, so a plain variable is narrowed to `null` for the rest of this
-       function and the replay below stops type-checking. A property is not
-       narrowed across a call, which is the truth here. */
-    const early: { arrival: Arrival | null } = { arrival: null }
-    const held = (...arrival: Arrival) => {
-      if (ready) arrived(...arrival)
-      else early.arrival = arrival
-    }
-
-    host.current = connect(id, {
-      onHello: (context) => held(context, true),
-      onContext: (context) => held(context, false),
+    const live = connect(id, {
+      onHello: (context) => arrived(context, true),
+      onContext: (context) => arrived(context, false),
       onGoto: (message, answer) => goto.current(message, answer),
     })
-    ready = true
-    if (early.arrival) arrived(...early.arrival)
+    host.current = live
+    live.listen()
 
     const grace = setTimeout(() => {
       setSight((was) => (was.at === 'listening' ? { at: 'unhosted' } : was))
@@ -277,8 +298,10 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
 
     return () => {
       clearTimeout(grace)
-      host.current?.stop()
-      host.current = null
+      live.stop()
+      /* Cleared only if it is still ours: under StrictMode the second mount has
+         already assigned its own connection by the time some cleanups run. */
+      if (host.current === live) host.current = null
     }
   }, [id, look])
 
