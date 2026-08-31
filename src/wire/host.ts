@@ -144,7 +144,7 @@ export interface Host {
  * effect, and effects run strictly after the frame's `load` event — which is
  * exactly when the host greets. Listening on the window here meant the greeting
  * had already come and gone, every time: the page rendered perfectly and the
- * pane beside it reported a module that would not speak. See the essay in
+ * container beside it reported a module that would not speak. See the essay in
  * `mailbox.ts`.
  *
  * The source stays injectable, because everything this function decides is
@@ -214,7 +214,7 @@ export function connect(id: string, events: HostEvents = {}, window_: MessageSou
         /* Carried and deliberately not read, exactly as `pinned` is below. This
            module declares `prompt: false` — see the essay in `manifest.ts` for
            the three reasons — so a host that offers prompts will not offer one
-           for this pane and this field will be null. Passing it through anyway
+           for this container and this field will be null. Passing it through anyway
            costs a line and means the day that declaration changes, the value is
            already arriving at the hook rather than being rediscovered here. */
         prompt: message.prompt,

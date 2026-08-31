@@ -19,7 +19,7 @@
  *
  * And the symptom of that is not an error anybody sees. The document loads, the
  * frame's `load` event fires, the host greets it, and no script in the page ever
- * ran — so nothing answers, the pane reports a module that will not speak, and
+ * ran — so nothing answers, the container reports a module that will not speak, and
  * the only place the real reason appears is the browser console. It is the exact
  * shape of the CORS failure the sibling modules lost days to, arriving through a
  * completely different door.

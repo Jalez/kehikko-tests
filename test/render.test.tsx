@@ -104,8 +104,8 @@ test('a suite that has runs here but is no longer configured is kept and marked'
   expect(screen.getByText('no longer configured')).toBeTruthy()
 })
 
-test('nothing in the card is a long unbroken string that could widen a pane', () => {
-  /* The pane is 220px at its narrowest. Every element that can hold a path or a
+test('nothing in the card is a long unbroken string that could widen a container', () => {
+  /* The container is 220px at its narrowest. Every element that can hold a path or a
      ref carries `overflow-wrap: anywhere` in `index.css`; this asserts the other
      half, which is that the card does not put a fixed-width element in the way.
      The measured version of this is the Playwright pass at 220/280/320/400. */

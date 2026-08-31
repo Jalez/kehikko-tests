@@ -66,7 +66,7 @@ export function counted(run: Run): string {
  *
  * `flex-wrap` and `min-w-0` rather than a grid: a suite name and a "by" are both
  * arbitrary strings, and at 220 pixels the honest thing for them to do is wrap
- * onto a second line rather than push the pane wider than its frame.
+ * onto a second line rather than push the container wider than its frame.
  */
 export function RunLine({ run, ago }: { run: Run; ago: string }) {
   return (

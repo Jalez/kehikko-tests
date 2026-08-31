@@ -75,7 +75,7 @@ export function useRuns(): Runs {
    * The lines held per run, in a ref rather than in state.
    *
    * A busy suite prints hundreds of lines a second, and one `setState` per line
-   * is one React render per line — which on a 220-pixel pane is a page that
+   * is one React render per line — which on a 220-pixel container is a page that
    * stops responding to a click. So lines accumulate in a ref and the component
    * is asked to repaint on a timer. The timer is the honest trade: the screen is
    * up to a tenth of a second behind, which nobody can perceive, and it stays

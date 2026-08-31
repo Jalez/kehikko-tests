@@ -51,17 +51,17 @@ import { counted, gloss, RunLine, Verdict } from '@/view/verdict.tsx'
  * ## Everything measures the PANE
  *
  * There is not a viewport breakpoint in this file. The one responsive rule is
- * `@min-[300px]/pane:`, which asks the container declared on `<body>` how wide
+ * `@min-[300px]/container:`, which asks the container declared on `<body>` how wide
  * IT is — see the essay in `index.css`. A `sm:` here would be true on every
  * monitor this app will ever be opened on and would lay a 220-pixel column out
  * as though it were a page.
  *
  * ## Identity is printed only when nothing is framing this page
  *
- * A host prints the module's name in the pane header and hangs the manifest's
+ * A host prints the module's name in the container header and hangs the manifest's
  * `summary` off it. A page that also printed "Tests" at the top of itself would
- * be saying the name twice and spending a fixed strip of a 340-pixel-tall pane on
- * the repetition. Unframed there is no pane header and nothing else would ever
+ * be saying the name twice and spending a fixed strip of a 340-pixel-tall container on
+ * the repetition. Unframed there is no container header and nothing else would ever
  * say what this program is, so the heading stays. The test is
  * `window.parent !== window`, which is answerable before first paint and
  * therefore does not blink.
@@ -101,18 +101,18 @@ export function App() {
 
   const onGoto = useCallback<GotoHandler>((message, answer) => {
     /* A `goto` may name an epic, a step, or a reference, and only the last of
-       those is a thing this pane draws. Answering "not found" for the other two
+       those is a thing this container draws. Answering "not found" for the other two
        is the honest reply rather than a failure: this page has no epic of its own
        to move to and no steps at all. Saying so quickly is what gets the reader
        the host's fallback link instead of a twelve-second wait. */
     const ref = message.ref
     if (!ref) {
-      answer(false, 'This pane shows what has been run against references, so there is nothing here to walk to by epic or step.')
+      answer(false, 'This container shows what has been run against references, so there is nothing here to walk to by epic or step.')
       return
     }
     const card = document.querySelector(`[data-ref="${CSS.escape(ref)}"]`)
     if (!card) {
-      answer(false, 'This pane is showing what the canvas has selected, and that reference is not among them.')
+      answer(false, 'This container is showing what the canvas has selected, and that reference is not among them.')
       return
     }
     card.scrollIntoView({ block: 'start', behavior: 'smooth' })
@@ -391,13 +391,13 @@ export function RefCard({
           return (
             <div className="flex min-w-0 flex-col gap-1 border-t pt-1.5" key={name}>
               {/*
-                Name on the left, Run on the right — but only once the pane is
+                Name on the left, Run on the right — but only once the container is
                 wide enough for that to be true. Under about 300 pixels the
                 button ends up alone on a line of its own anyway, and a
                 `justify-between` row that has wrapped leaves a gap that reads as
                 a mistake. The query measures the PANE, not the monitor.
               */}
-              <div className="flex min-w-0 flex-col gap-1 @min-[300px]/pane:flex-row @min-[300px]/pane:items-baseline @min-[300px]/pane:justify-between">
+              <div className="flex min-w-0 flex-col gap-1 @min-[300px]/container:flex-row @min-[300px]/container:items-baseline @min-[300px]/container:justify-between">
                 <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1">
                   <Verdict verdict={now ? 'running' : (run?.verdict ?? 'none')} />
                   <span className={NAME}>{name}</span>
@@ -406,7 +406,7 @@ export function RefCard({
                 {gone.includes(name) ? null : (
                   <Button
                     variant="outline"
-                    size="pane"
+                    size="container"
                     className="self-start"
                     onClick={() => onRun(name)}
                     disabled={Boolean(now)}
@@ -496,7 +496,7 @@ function Stop({
   if (!confirming) {
     return (
       <div className="flex flex-wrap items-center gap-1">
-        <Button variant="destructive" size="pane" onClick={onAsk} data-stop={id}>
+        <Button variant="destructive" size="container" onClick={onAsk} data-stop={id}>
           stop
         </Button>
       </div>
@@ -505,10 +505,10 @@ function Stop({
   return (
     <div className="flex flex-wrap items-center gap-1">
       <span className={`w-full ${SAID}`}>Stop it? Nothing will be learned about the code.</span>
-      <Button variant="destructive" size="pane" onClick={onConfirm} data-stop-confirm={id}>
+      <Button variant="destructive" size="container" onClick={onConfirm} data-stop-confirm={id}>
         yes, stop
       </Button>
-      <Button variant="outline" size="pane" onClick={onCancel}>
+      <Button variant="outline" size="container" onClick={onCancel}>
         keep going
       </Button>
     </div>
@@ -547,7 +547,7 @@ function SuiteList({
           </p>
           <div className="flex flex-wrap gap-1">
             {refs.map((ref) => (
-              <Button variant="outline" size="pane" className="font-mono" key={ref} onClick={() => onPick(ref)} data-pick={ref}>
+              <Button variant="outline" size="container" className="font-mono" key={ref} onClick={() => onPick(ref)} data-pick={ref}>
                 {ref}
               </Button>
             ))}
@@ -560,9 +560,9 @@ function SuiteList({
         {state.suites.length ? (
           state.suites.map((s) => (
             <div className="flex min-w-0 flex-col gap-1 border-t pt-1.5" key={s.name}>
-              <div className="flex min-w-0 flex-col gap-1 @min-[300px]/pane:flex-row @min-[300px]/pane:items-baseline @min-[300px]/pane:justify-between">
+              <div className="flex min-w-0 flex-col gap-1 @min-[300px]/container:flex-row @min-[300px]/container:items-baseline @min-[300px]/container:justify-between">
                 <span className={NAME}>{s.name}</span>
-                <Button variant="outline" size="pane" className="self-start" onClick={() => onRun(s.name)} data-run={s.name}>
+                <Button variant="outline" size="container" className="self-start" onClick={() => onRun(s.name)} data-run={s.name}>
                   run
                 </Button>
               </div>
@@ -615,6 +615,6 @@ function Sightline({ sight, hasSuites }: { sight: ReturnType<typeof useRoadmap>[
               ? `The host was asked about ${sight.epic} and said no: ${sight.refusal.error} Selected references will be called “reference” rather than named as issues or pull requests; everything else works.${tail}`
               : sight.at === 'unread'
                 ? `The host has no reading for ${sight.epic}, so a selected reference will be called “reference” rather than named as an issue or a pull request. Everything else works.${tail}`
-                : `Nothing is selected on the canvas. Pick a reference and this pane shows what has been run against it.${tail}`
+                : `Nothing is selected on the canvas. Pick a reference and this container shows what has been run against it.${tail}`
   return <p className={SAID}>{said}</p>
 }

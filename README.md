@@ -99,9 +99,9 @@ the palette, the container and the `dark` variant are all in `src/index.css`.
 
 Two rules in that file are load-bearing rather than cosmetic, and both are argued
 out where they live. The `dark` variant is bound to the `.dark` class the wire
-sets from `roadmap.context.theme`, NOT to `prefers-color-scheme`, so a pane told
+sets from `roadmap.context.theme`, NOT to `prefers-color-scheme`, so a container told
 "light" on a machine set to dark does not come out half of each. And every
-responsive class measures the PANE — `@min-[300px]/pane:`, against the container
+responsive class measures the PANE — `@min-[300px]/container:`, against the container
 declared on `<body>` — because a viewport breakpoint fires on the monitor, and
 this page's normal case is three per cent of one.
 
@@ -115,5 +115,5 @@ this page's normal case is three per cent of one.
     runs/store.ts      what was run against what, and the six verdicts
     runs/ago.ts        the one function both sides need, and why it is not in the store
     src/               the page: the wire, the stream, the cards
-    src/index.css      the palette, the seven verdict colours, and the pane container
+    src/index.css      the palette, the seven verdict colours, and the container container
     src/components/ui/ shadcn's button and badge, with the six verdicts as variants

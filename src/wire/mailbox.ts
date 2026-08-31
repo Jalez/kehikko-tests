@@ -14,7 +14,7 @@
  * added inside `useEffect` — which is where `connect` was being called from —
  * is added STRICTLY AFTER `load`. The greeting had already been posted into a
  * page that was not yet listening, and was gone. Nothing retries: the host says
- * its one word, the module never answers, and the pane reads "loaded its page
+ * its one word, the module never answers, and the container reads "loaded its page
  * and did not answer the host's greeting". Which is true, and gives no hint
  * that the greeting arrived a few hundred milliseconds before anybody was there
  * to hear it.

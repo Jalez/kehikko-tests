@@ -57,11 +57,11 @@ export function Log({ lines, dropped }: { lines: string[]; dropped: number }) {
         line silently. A box with its own visible edges and its own scrollbar is
         a thing a reader can understand — and because it is `overflow-auto`
         rather than `overflow-visible`, the page AROUND it stays exactly as wide
-        as the frame. That is the whole of "the log scrolls and the pane does
+        as the frame. That is the whole of "the log scrolls and the container does
         not".
 
         `overscroll-contain` so that reaching the bottom of the log does not
-        hand the scroll to the pane, and then to the canvas behind it.
+        hand the scroll to the container, and then to the canvas behind it.
       */}
       <div
         /* Named for a probe rather than for a stylesheet. Every class on this

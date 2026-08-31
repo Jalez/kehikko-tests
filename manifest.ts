@@ -31,14 +31,14 @@ export const VERSION = '1.0.0'
  *   that can disagree with the first, and a capability asked for and never
  *   exercised is the fastest way to teach somebody to press yes without reading.
  * - **`selection:set` — not declared.** This app REACTS to a selection. A
- *   module whose page can spawn processes asking to also steer every other pane
+ *   module whose page can spawn processes asking to also steer every other container
  *   on the canvas is a larger thing than anybody needs it to be.
  * - **`stage:report` — not declared, and it is the tempting one.** A red suite
  *   looks like grounds to report `blocked`, and it is not: a test failing is
  *   this app's observation, and where the work has got to is a claim belonging
  *   to whoever is doing it. An app that reported a stage off an exit code would
  *   be putting words in somebody's mouth every time a flake went red at 3am.
- * - **`view:navigate` — not declared.** This is a pane a reader is already
+ * - **`view:navigate` — not declared.** This is a container a reader is already
  *   standing in; what it wants is to be walked TO, which is `roadmap.goto`
  *   arriving and needs no declaration.
  * - **Tracker access — not declared, and there is no capability for it.** This
@@ -59,7 +59,7 @@ export const VERSION = '1.0.0'
  * ## `prompt: false`, and this module is the one where the question is live
  *
  * The protocol offers a module a prompt: a paragraph a person writes on the
- * canvas, aimed at one pane, composed by the host and delivered in every
+ * canvas, aimed at one container, composed by the host and delivered in every
  * context. Declaring it makes a host OFFER one. The brief for this module raised
  * the question sharply, because this app IS configured in prose — an agent
  * converses with it over MCP and says how the project is tested. So why is a

@@ -10,9 +10,9 @@
  * else. That is deliberate and it is the whole reason it is written out rather
  * than left at Tailwind's default: Tailwind's stock `dark:` also fires on
  * `prefers-color-scheme`, and this page's theme is a fact the HOST states in
- * `roadmap.context.theme`. A pane told "light" by the canvas, on a machine set
+ * `roadmap.context.theme`. A container told "light" by the canvas, on a machine set
  * to dark, would otherwise draw half its components dark — the tokens obeying
- * the host and every `dark:` utility obeying the OS, in the same pane, at the
+ * the host and every `dark:` utility obeying the OS, in the same container, at the
  * same time.
  *
  * The media query further down is a different thing and is not that: it moves
@@ -22,17 +22,17 @@
  *
  * ## Container queries, not viewport breakpoints
  *
- * This page's normal case is a pane 220 to 400 pixels wide inside somebody's
+ * This page's normal case is a container 220 to 400 pixels wide inside somebody's
  * canvas, on a monitor two thousand pixels across. Every viewport breakpoint
  * Tailwind ships would therefore fire — `lg:` is true, `xl:` is true — and the
  * page would lay itself out for a screen it has three per cent of. So the
  * `<body>` is a named container, every responsive class in this app is an
- * `@min-[…]/pane:` class, and the only thing any of them ever measures is the
- * pane.
+ * `@min-[…]/container:` class, and the only thing any of them ever measures is the
+ * container.
  *
  * ## Nothing overflows sideways, ever
  *
- * A pane that scrolls horizontally is a pane where half a sentence is behind an
+ * A container that scrolls horizontally is a container where half a sentence is behind an
  * edge nobody thinks to drag. `overflow-x: hidden` on the body would HIDE that
  * rather than fix it, so it is not here: what is here is `overflow-wrap` on the
  * prose and `min-w-0` on the flex children, which are the two things that
@@ -192,11 +192,11 @@
 
   /*
    * The container every responsive class in this app measures. Named, so an
-   * `@min-[300px]/pane:` class cannot accidentally attach itself to some nested
+   * `@min-[300px]/container:` class cannot accidentally attach itself to some nested
    * container a component introduces later.
    */
   body {
-    container: pane / inline-size;
+    container: container / inline-size;
     -webkit-font-smoothing: antialiased;
     font-synthesis-weight: none;
   }
