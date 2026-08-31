@@ -196,6 +196,34 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     about: 'Say how a project is tested — named suites, each a command in a directory — then run one and read what happened.',
   },
   extensions: { emits: [], consumes: [] },
+  /**
+   * ## `reacts: ['selection']`, which is a description and not a request
+   *
+   * The selection decides which refs this page reports standings for.
+   * `src/app.tsx` clears a locally picked set the moment the canvas selects
+   * something, and re-queries `standings(refs)` off the result — so a change
+   * of selection is a different page, not merely a different value in hand.
+   *
+   * The field is new, and the reason to fill it in is a person browsing the
+   * module registry. Until now a host could say who SENDS — References declares
+   * `selection:set` — and could not say who RECEIVES, because every framed
+   * module is handed the whole context and receiving one distinguished nobody.
+   * So a registry could draw half of every relationship. This is the other
+   * half, written down.
+   *
+   * It changes nothing about what this app is given. The selection arrives in
+   * `roadmap.context` whether or not this line exists, and if a host ever
+   * started withholding the context from modules that had not declared an
+   * interest, that host would have turned a line of documentation into a
+   * permission over something it was already broadcasting. Nothing here is
+   * asked for and nothing is granted; see the essay on `reacts` in the
+   * protocol's `manifest.ts`.
+   *
+   * `passage` is deliberately not here. A test standing belongs to a ref. Nothing here
+   * moves when a reader highlights a sentence, and a word ticked without a
+   * reaction behind it is exactly the rot this field would suffer first.
+   */
+  reacts: ['selection'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     uses: ['live:read'],
