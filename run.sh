@@ -48,20 +48,33 @@
 # 7900 in particular, and a registration still naming a port this app has drifted
 # off is one the host sweeps to find nothing.
 #
-# ## There is no build here, and no `dist`
+# ## This script does not build, and must not start being the one that does
 #
-# The argument for one is that starting should be starting: a start that shells
-# out to a build is a start that fails when the network is down. The argument is
-# fine and the shape is still wrong, because this program is not deployed — it
-# runs on the machine of the person editing it. What `dist` actually buys is a
-# STALE page served with a 200, every symptom of a working app and none of the
-# changes, and that failure has cost this codebase whole afternoons three
-# separate times in three different programs. A missing build announces itself. A
-# stale one does not.
+# There IS a build now — `bun run build`, served by `bun run start`, which is
+# `serve.ts` — and this line still runs Vite. That is a decision rather than an
+# omission, and it is the same decision this comment has always recorded.
 #
-# So Vite serves the page, as Vite is for. The manifest, the health check, the
-# MCP door, this app's own store and the event stream are middleware in front of
-# the same server — see `doors()` in `vite.config.ts` — because a module is one
+# The argument for building here is that starting should be starting: a start
+# that shells out to a build is a start that fails when the network is down. The
+# argument is fine and the shape is still wrong, because on THIS path the program
+# is not deployed — it runs on the machine of the person editing it. What a
+# `dist` buys them is a STALE page served with a 200, every symptom of a working
+# app and none of the changes, and that failure has cost this codebase whole
+# afternoons three separate times in three different programs. A missing build
+# announces itself. A stale one does not.
+#
+# `serve.ts` exists for the case this one cannot cover — running this module
+# somewhere that is not the machine it is edited on, and running fourteen of
+# these without fourteen bundlers resident, which was measured at 1061 MB across
+# the fleet. It answers a missing `dist` with a 503 naming the command rather
+# than by building, for the reason above. The two paths share every door: the
+# manifest is one constant, `answer()` in `doors.ts` is one function, and the
+# event stream's policy is one file, `runs/stream.ts`. Only the page differs, and
+# only in how it is compiled.
+#
+# So here, Vite serves the page, as Vite is for. The manifest, the health check,
+# the MCP door, this app's own store and the event stream are middleware in front
+# of the same server — see `doors()` in `vite.config.ts` — because a module is one
 # origin or it is nothing, and because a page whose EventSource pointed at a
 # second port would be opening a cross-origin stream, which is the one thing this
 # module's `storage: true` was declared to avoid needing.

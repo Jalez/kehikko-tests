@@ -8,10 +8,20 @@
 # every checkout afterwards failed with ELOOP.
 node_modules
 
-# The build. Nothing serves it — `run.sh` runs Vite — and a checked-in copy is a
-# second answer to "what does this page say", which disagrees with the first the
-# moment somebody edits `src/`.
+# The build. `serve.ts` serves it and `run.sh` does not — the development path is
+# still Vite, deliberately — and a checked-in copy is a second answer to "what
+# does this page say", which disagrees with the first the moment somebody edits
+# `src/`. Whoever runs the built server builds it first; `/app` says so when it
+# is missing.
 dist
+
+# The build's entry document, which `build.ts` writes from `page/document.ts` and
+# removes again. It is here because the removal is in a `finally` and a `finally`
+# does not run on SIGKILL: without this line, a build somebody killed halfway
+# leaves a root `index.html` staged for the next commit — and, worse, sitting
+# where the DEV server will start handing it back at `/`, a document with a
+# sentinel where the ticket goes and every run refused.
+/index.html
 
 # This app's own store: the suites somebody configured and the runs recorded
 # against a reference. Both are facts about THIS MACHINE — a suite names an
