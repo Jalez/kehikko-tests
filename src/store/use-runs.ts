@@ -57,17 +57,17 @@ export interface Runs {
 /** How many finished runs are remembered in memory, purely to repaint cards. */
 const KEEP_ENDED = 40
 
-export function useRuns(): Runs {
+export function useRuns(project: string | null): Runs {
   const [held, setHeld] = useState<State | null>(null)
   const [live, setLive] = useState<Live[]>([])
   const [connected, setConnected] = useState(false)
   const [ended, setEnded] = useState<Run[]>([])
 
   const reload = useCallback(() => {
-    void state()
+    void state(project)
       .then(setHeld)
       .catch(() => setHeld(null))
-  }, [])
+  }, [project])
 
   useEffect(reload, [reload])
 
@@ -91,7 +91,12 @@ export function useRuns(): Runs {
       setLive([...lines.current.values()])
     }, 100)
 
-    const source = new EventSource('/api/events')
+    /* One project's runs; a new project is a new stream, and what the old one
+       was showing goes with it. */
+    lines.current = new Map()
+    dirty.current = true
+    setEnded([])
+    const source = new EventSource(project === null ? '/api/events' : `/api/events?project=${encodeURIComponent(project)}`)
 
     source.addEventListener('open', () => setConnected(true))
     source.addEventListener('error', () => {

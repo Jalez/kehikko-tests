@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -22,7 +22,10 @@ import type { Run } from '../runs/store.ts'
  * enforces is that a REQUEST cannot choose it for them.
  */
 
-const here = mkdtempSync(join(tmpdir(), 'tests-spawn-'))
+const here = realpathSync(mkdtempSync(join(tmpdir(), 'tests-spawn-')))
+/* Where the OLD single store is looked for: somewhere that does not exist, so no
+   test can adopt this repository's real `data/` into its temporary project. */
+const legacy = `${here}-legacy`
 
 /**
  * The store this file uses, re-pointed before EVERY test rather than once.
@@ -34,14 +37,14 @@ const here = mkdtempSync(join(tmpdir(), 'tests-spawn-'))
  * is run alone, so it is worth the extra line to make impossible.
  */
 beforeEach(() => {
-  process.env.TESTS_DATA = here
+  process.env.TESTS_DATA = legacy
 })
 /* And once in a `beforeAll` as well, because the suites below are defined in a
    `beforeAll` of their own — which runs before any `beforeEach` does, and would
    otherwise write them into whichever file's directory happened to be pointed at
    last. */
 beforeAll(() => {
-  process.env.TESTS_DATA = here
+  process.env.TESTS_DATA = legacy
 })
 afterAll(() => {
   stopAll()
@@ -53,7 +56,7 @@ const { begin, end, stopAll, subscribe, waitFor, MAX_LIVE, runningSuite } = awai
 const { standingFor } = await import('../runs/store.ts')
 
 const define = (name: string, argv: string[], timeoutMs = 30_000) =>
-  configure({ name, what: `a deliberate ${name} for the tests`, command: argv, dir: here, timeoutMs, by: 'the test' })
+  configure(here, { name, what: `a deliberate ${name} for the tests`, command: argv, dir: here, timeoutMs, by: 'the test' })
 
 beforeAll(() => {
   define('green', ['sh', '-c', 'echo "2 pass"; echo "0 fail"; exit 0'])
@@ -65,7 +68,7 @@ beforeAll(() => {
 })
 
 async function runTo(suite: string, ref = ''): Promise<Run> {
-  const started = begin({ suite, ref, by: 'the test' })
+  const started = begin({ project: here, suite, ref, by: 'the test' })
   expect(started.ok).toBe(true)
   if (!started.ok) throw new Error(started.error)
   const done = await waitFor(started.run.id, 20_000)
@@ -89,13 +92,13 @@ test('a suite that exits non-zero is failed, and its stderr is kept', async () =
 })
 
 test('the run is recorded against the reference it was run for', () => {
-  const s = standingFor('!1')
+  const s = standingFor(here, '!1')
   expect(s.runs.length).toBeGreaterThanOrEqual(2)
   expect(s.bySuite.map((r) => r.suite).sort()).toEqual(['green', 'red'])
 })
 
 test('a reference nothing was run against has no runs, and that is not a failure', () => {
-  const s = standingFor('gh#999')
+  const s = standingFor(here, 'gh#999')
   expect(s.runs).toEqual([])
   expect(s.latest).toBeNull()
 })
@@ -129,9 +132,9 @@ async function settle(id: string): Promise<void> {
 }
 
 test('one suite cannot be run twice at once', async () => {
-  const first = begin({ suite: 'slow2', by: 'the test' })
+  const first = begin({ project: here, suite: 'slow2', by: 'the test' })
   expect(first.ok).toBe(true)
-  const second = begin({ suite: 'slow2', by: 'the test' })
+  const second = begin({ project: here, suite: 'slow2', by: 'the test' })
   expect(second.ok).toBe(false)
   if (!second.ok) expect(second.error).toContain('already running')
   if (first.ok) await settle(first.run.id)
@@ -140,22 +143,22 @@ test('one suite cannot be run twice at once', async () => {
 test('the concurrency cap refuses an extra run rather than queueing it', async () => {
   const started: string[] = []
   for (const name of ['slow2', 'slow3']) {
-    const out = begin({ suite: name, by: 'the test' })
+    const out = begin({ project: here, suite: name, by: 'the test' })
     expect(out.ok).toBe(true)
     if (out.ok) started.push(out.run.id)
   }
   expect(started).toHaveLength(MAX_LIVE)
-  const extra = begin({ suite: 'green', by: 'the test' })
+  const extra = begin({ project: here, suite: 'green', by: 'the test' })
   expect(extra.ok).toBe(false)
   if (!extra.ok) expect(extra.error).toContain(`at most ${MAX_LIVE}`)
   for (const id of started) await settle(id)
 })
 
 test('a hung run is killed by its own timeout, and is "timeout" rather than "failed"', async () => {
-  const started = begin({ suite: 'slow', ref: '!2', by: 'the test' })
+  const started = begin({ project: here, suite: 'slow', ref: '!2', by: 'the test' })
   expect(started.ok).toBe(true)
   if (!started.ok) return
-  expect(runningSuite('slow')?.id).toBe(started.run.id)
+  expect(runningSuite(here, 'slow')?.id).toBe(started.run.id)
   const done = await waitFor(started.run.id, 20_000)
   expect(done?.verdict).toBe('timeout')
   /* The distinction the whole verdict vocabulary exists for: nothing was
@@ -164,7 +167,7 @@ test('a hung run is killed by its own timeout, and is "timeout" rather than "fai
 })
 
 test('a program that is not there is "crashed", which is also not "failed"', async () => {
-  const started = begin({ suite: 'nosuch', by: 'the test' })
+  const started = begin({ project: here, suite: 'nosuch', by: 'the test' })
   expect(started.ok).toBe(true)
   if (!started.ok) return
   const done = await waitFor(started.run.id, 20_000)
@@ -172,7 +175,36 @@ test('a program that is not there is "crashed", which is also not "failed"', asy
 })
 
 test('a run cannot name a suite that was never configured', () => {
-  const out = begin({ suite: 'whatever-i-like', by: 'the test' })
+  const out = begin({ project: here, suite: 'whatever-i-like', by: 'the test' })
   expect(out.ok).toBe(false)
   if (!out.ok) expect(out.error).toContain('no suite called')
+})
+
+test('a run with no project is refused before anything is looked up', () => {
+  const out = begin({ project: null, suite: 'green', by: 'the test' })
+  expect(out.ok).toBe(false)
+  if (!out.ok) expect(out.error).toContain('no project is open')
+})
+
+test('runs are recorded in the project, at .kehikot/tests/runs.json', async () => {
+  const done = await runTo('green', '!in-project')
+  expect(done.verdict).toBe('passed')
+  const kept = JSON.parse(readFileSync(join(here, '.kehikot', 'tests', 'runs.json'), 'utf8'))
+  expect(kept.runs['!in-project'][0].id).toBe(done.id)
+})
+
+test('a stream is one project’s: another project’s run never reaches it', async () => {
+  const { attach } = await import('../runs/stream.ts')
+  const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'tests-spawn-other-')))
+  const mine: string[] = []
+  const theirs: string[] = []
+  const a = attach({ write: (event) => void mine.push(event) }, here)
+  const b = attach({ write: (event) => void theirs.push(event) }, elsewhere)
+  await runTo('green')
+  a()
+  b()
+  rmSync(elsewhere, { recursive: true, force: true })
+  expect(mine).toContain('started')
+  expect(mine).toContain('ended')
+  expect(theirs).toEqual(['hello'])
 })

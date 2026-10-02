@@ -12,7 +12,7 @@ import { ID, PREFERRED_PORT } from './manifest.ts'
 import { page } from './page/document.ts'
 import { stopAll } from './runs/spawn.ts'
 import { attach, frame } from './runs/stream.ts'
-import { sweep } from './runs/store.ts'
+import { projectOf } from './store.ts'
 
 /**
  * Every door this app answers on, served by the one process that serves the
@@ -55,21 +55,10 @@ function doors(): Plugin {
   return {
     name: 'tests-doors',
     configureServer(server) {
-      /**
-       * Every run that a previous life of this process left saying "running".
-       *
-       * A run exists only inside the process that spawned it. Restart this
-       * server and the record on disk still says `running`, and a page drawing
-       * that would be claiming a process is alive that this program cannot see,
-       * cannot stream and cannot stop. `sweep` turns those into `crashed` with a
-       * sentence about what happened. See the essay in `runs/store.ts`.
-       */
-      const swept = sweep()
-      if (swept) {
-        server.config.logger.info(
-          `tests: ${swept} run${swept === 1 ? ' was' : 's were'} left saying "running" by a previous server and ${swept === 1 ? 'is' : 'are'} now recorded as crashed.`,
-        )
-      }
+      /* Runs a previous life of this process left saying "running" are swept
+         per project as each project is read, not here: the runs live inside the
+         projects, and at startup this server knows of none. See `sweep` in
+         `runs/store.ts`. */
 
       /**
        * Nothing this app started outlives it.
@@ -243,6 +232,9 @@ function events(request: IncomingMessage, response: ServerResponse): void {
      whose whole point is immediacy turns "live" into "live, in bursts". */
   request.socket.setNoDelay(true)
 
+  /* The stream is one project's: a page standing in one project is never shown
+     another's runs. */
+  const project = projectOf(new URL(request.url ?? '/', 'http://127.0.0.1').searchParams.get('project'))
   const detach = attach({
     write(event, data) {
       /* A write to a socket the browser closed a moment ago throws, and it must
@@ -255,7 +247,7 @@ function events(request: IncomingMessage, response: ServerResponse): void {
         /* ignore */
       }
     },
-  })
+  }, project)
 
   const close = () => {
     detach()

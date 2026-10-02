@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -11,7 +11,10 @@ import { join } from 'node:path'
  * what `vite.config.ts` does with a node request. Nothing here binds a port.
  */
 
-const here = mkdtempSync(join(tmpdir(), 'tests-doors-'))
+const here = realpathSync(mkdtempSync(join(tmpdir(), 'tests-doors-')))
+/* Where the OLD single store is looked for: somewhere that does not exist, so no
+   test can adopt this repository's real `data/` into its temporary project. */
+const legacy = `${here}-legacy`
 
 /**
  * The store this file uses, re-pointed before EVERY test rather than once.
@@ -23,7 +26,7 @@ const here = mkdtempSync(join(tmpdir(), 'tests-doors-'))
  * is run alone, so it is worth the extra line to make impossible.
  */
 beforeEach(() => {
-  process.env.TESTS_DATA = here
+  process.env.TESTS_DATA = legacy
 })
 afterAll(() => {
   rmSync(here, { recursive: true, force: true })
@@ -32,9 +35,9 @@ afterAll(() => {
 const { answer, TICKET, tellRef } = await import('../doors.ts')
 const { waitFor } = await import('../runs/spawn.ts')
 
-const q = new URLSearchParams()
+const q = new URLSearchParams({ project: here })
 const call = (name: string, args: Record<string, unknown> = {}) =>
-  answer('POST', '/mcp', q, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }, null)
+  answer('POST', '/mcp', q, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { project: here, ...args } } }, null)
 
 const said = (reply: Awaited<ReturnType<typeof answer>>): string => {
   const body = reply?.body as { result?: { content?: { text?: string }[]; isError?: boolean } }
@@ -84,7 +87,7 @@ test('a command line over MCP is refused as a tool error, with a sentence', asyn
 })
 
 test('a run without the ticket is refused, and no process is started', async () => {
-  const reply = await answer('POST', '/api/run', q, { suite: 'unit' }, 'not-the-ticket')
+  const reply = await answer('POST', '/api/run', q, { project: here, suite: 'unit' }, 'not-the-ticket')
   expect(reply?.status).toBe(403)
   const state = await answer('GET', '/api/state', q, null, null)
   expect((state?.body as { active: unknown[] }).active).toHaveLength(0)
@@ -94,7 +97,7 @@ test('a run with the ticket starts, and cannot name a command', async () => {
   /* The shape of the request is the argument: `suite` and `ref`, and nothing
      that could carry an executable. A field that is not read is a field that
      cannot be abused. */
-  const reply = await answer('POST', '/api/run', q, { suite: 'unit', ref: '!7', command: ['rm', '-rf', '/'] }, TICKET)
+  const reply = await answer('POST', '/api/run', q, { project: here, suite: 'unit', ref: '!7', command: ['rm', '-rf', '/'] }, TICKET)
   expect(reply?.status).toBe(200)
   const run = (reply?.body as { run: { id: string; command: string[]; ref: string } }).run
   expect(run.command).toEqual(['sh', '-c', 'exit 0'])
@@ -109,7 +112,7 @@ test('a run with the ticket starts, and cannot name a command', async () => {
 })
 
 test('a run naming a suite nobody configured is refused with the names that exist', async () => {
-  const reply = await answer('POST', '/api/run', q, { suite: 'invented' }, TICKET)
+  const reply = await answer('POST', '/api/run', q, { project: here, suite: 'invented' }, TICKET)
   expect(reply?.status).toBe(409)
   expect((reply?.body as { error: string }).error).toContain('unit')
 })
@@ -125,7 +128,7 @@ test('a reference nothing has been run against comes back as a standing, not as 
 })
 
 test('and it is said in words, as three different things', () => {
-  const words = tellRef('gh#404')
+  const words = tellRef(here, 'gh#404')
   expect(words).toContain('nothing has been run')
   expect(words).toContain('not a pass and not a failure')
 })
@@ -146,4 +149,27 @@ test('the MCP door is deliberately above the ticket check', async () => {
   const reply = await call('how_tested')
   expect(wrong(reply)).toBe(false)
   expect(said(reply)).toContain('unit')
+})
+
+test('with no project the read door says "nowhere" rather than "nothing configured"', async () => {
+  const reply = await answer('GET', '/api/state', new URLSearchParams(), null, null)
+  expect(reply?.body).toMatchObject({ ok: true, nowhere: true, suites: [], refs: [] })
+})
+
+test('an MCP tool with no project is refused with a sentence, not guessed', async () => {
+  const reply = await answer(
+    'POST',
+    '/mcp',
+    q,
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'how_tested', arguments: {} } },
+    null,
+  )
+  expect(wrong(reply)).toBe(true)
+  expect(said(reply)).toContain('no project is open')
+})
+
+test('a run from the page with no project is refused', async () => {
+  const reply = await answer('POST', '/api/run', q, { suite: 'unit' }, TICKET)
+  expect(reply?.status).toBe(409)
+  expect((reply?.body as { error: string }).error).toContain('no project is open')
 })

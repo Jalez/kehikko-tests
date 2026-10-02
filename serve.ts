@@ -9,7 +9,7 @@ import { answer, MANIFEST, TICKET } from './doors.ts'
 import { ID, PREFERRED_PORT, VERSION } from './manifest.ts'
 import { TICKET_SLOT_JSON } from './page/document.ts'
 import { attach, frame } from './runs/stream.ts'
-import { sweep } from './runs/store.ts'
+import { projectOf } from './store.ts'
 import { stopAll } from './runs/spawn.ts'
 
 /**
@@ -108,23 +108,9 @@ if (claimed.status === 'nowhere') {
 }
 if (claimed.moved) console.log(sayClaim(claimed))
 
-/**
- * Every run a previous life of this process left saying "running".
- *
- * Identical to what the dev server does on start, and for the identical reason:
- * a run exists only inside the process that spawned it, so a record on disk
- * still saying `running` after a restart is a page drawing a live process this
- * program cannot see, cannot stream and cannot stop. See the essay in
- * `runs/store.ts`.
- */
-const swept = sweep()
-if (swept) {
-  console.log(
-    `tests: ${swept} run${swept === 1 ? ' was' : 's were'} left saying "running" by a previous server and ${
-      swept === 1 ? 'is' : 'are'
-    } now recorded as crashed.`,
-  )
-}
+/* Runs a previous life of this process left saying "running" are swept per
+   project as each project is read, not here: the runs live inside the projects,
+   and at startup this server knows of none. See `sweep` in `runs/store.ts`. */
 
 /* Nothing this app started outlives it. `spawn` puts each run in a process group
    of its own so a runner's children die with it, and the flip side is that a
@@ -216,6 +202,7 @@ function pageDocument(): Response {
  */
 function events(request: Request): Response {
   let detach: (() => void) | null = null
+  const project = projectOf(new URL(request.url).searchParams.get('project'))
   const bytes = new TextEncoder()
 
   const body = new ReadableStream({
@@ -228,7 +215,7 @@ function events(request: Request): Response {
             /* ignore */
           }
         },
-      })
+      }, project)
       /* A client that navigates away aborts the request; without this the
          subscription and its heartbeat would outlive every page that ever
          connected, which on a long-lived server is a slow leak of listeners

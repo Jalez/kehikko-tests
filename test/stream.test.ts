@@ -15,7 +15,7 @@ import { attach, frame } from '../runs/stream.ts'
 
 test('the first frame on any connection is the hello, before anything else', () => {
   const seen: string[] = []
-  const detach = attach({ write: (event) => void seen.push(event) })
+  const detach = attach({ write: (event) => void seen.push(event) }, null)
   detach()
 
   /* The order is the assertion. A page that connected mid-run and was told about
@@ -27,14 +27,14 @@ test('the first frame on any connection is the hello, before anything else', () 
 
 test('the hello names how many run slots there are, so the page can say 1 of 2', () => {
   let payload: unknown = null
-  const detach = attach({ write: (event, data) => { if (event === 'hello') payload = data } })
+  const detach = attach({ write: (event, data) => { if (event === 'hello') payload = data } }, null)
   detach()
 
   expect(payload).toMatchObject({ active: [], slots: expect.any(Number) })
 })
 
 test('detaching twice is not an error', () => {
-  const detach = attach({ write: () => {} })
+  const detach = attach({ write: () => {} }, null)
   detach()
 
   /* node fires both `close` and `error` on some broken connections and the
@@ -60,5 +60,5 @@ test('a sink that throws is the adapter’s problem, not the run’s', () => {
      with a try. This asserts the other half — that `attach` does not defend
      against it — so that anybody writing a third adapter finds out here rather
      than by killing a test suite mid-run from a socket that closed. */
-  expect(() => attach({ write: () => { throw new Error('socket gone') } })).toThrow('socket gone')
+  expect(() => attach({ write: () => { throw new Error('socket gone') } }, null)).toThrow('socket gone')
 })

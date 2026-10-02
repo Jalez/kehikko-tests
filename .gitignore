@@ -23,10 +23,10 @@ dist
 # sentinel where the ticket goes and every run refused.
 /index.html
 
-# This app's own store: the suites somebody configured and the runs recorded
-# against a reference. Both are facts about THIS MACHINE — a suite names an
-# absolute directory on it and a run records what a process on it did — so
-# committing either would be publishing a path that means nothing anywhere else
-# and a verdict nobody can reproduce. The suites are meant to be re-declared over
-# MCP on whatever machine the app is run on, which takes one call.
+# The OLD store, from before suites and runs lived inside each project at
+# `.kehikot/tests/`. A checkout that ran the old version keeps one here until
+# the projects it belongs to are opened and take their share (see `adopt` in
+# `store.ts`), and until then it is somebody's suites and runs — absolute paths
+# on this machine and verdicts nobody else can reproduce — and must not be
+# committed.
 data

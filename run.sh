@@ -33,10 +33,11 @@
 #     for what a host started. It matters more here than in a sibling: this
 #     process owns running test suites, and stopping it has to actually reach
 #     them.
-#   - `cd` to this script's own directory, so the app's store is beside the
-#     program however it was invoked, and TESTS_DATA set explicitly on top of
-#     that — see the essay in `store.ts` about what Vite's config bundling does
-#     to `import.meta.dir`.
+#   - `cd` to this script's own directory, and TESTS_DATA set explicitly to the
+#     `data/` there. The store is not in it any more — suites and runs live in
+#     each project at `.kehikot/tests/` — but that is where the OLD store was,
+#     and this is how it is found to be handed out. See `legacyDir` in
+#     `store.ts`.
 #
 # It does NOT register a module that had none. Registration is a deliberate act
 # by a person — see `register.ts` — and a start script that quietly wrote into

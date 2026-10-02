@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { isAbsolute, join, normalize } from 'node:path'
+import { isAbsolute, normalize } from 'node:path'
 import { z } from 'zod'
 
-import { dataDir } from '../store.ts'
+import { adopt, claim, makeDir, NOWHERE, place } from '../store.ts'
 
 /**
  * How this project is tested, as this app holds it.
@@ -104,11 +104,32 @@ const storeSchema = z.object({
 })
 type Store = z.infer<typeof storeSchema>
 
-function file(): string {
-  return join(dataDir(), 'suites.json')
+const empty = (): Store => storeSchema.parse({})
+
+/**
+ * This project's share of the old single `suites.json`: the suites whose
+ * directory is inside it (see `claim` in `../store.ts`), and any whose directory
+ * is gone, which nothing else could ever place.
+ */
+function split(legacy: unknown, root: string): { taken: Store; left: Store | null } | null {
+  const parsed = storeSchema.safeParse(legacy)
+  if (!parsed.success) return null
+  const taken: Store = { suites: {} }
+  const left: Store = { suites: {} }
+  for (const [name, one] of Object.entries(parsed.data.suites)) {
+    if (claim(root, one.dir) === 'theirs') left.suites[name] = one
+    else taken.suites[name] = one
+  }
+  if (!Object.keys(taken.suites).length) return null
+  return { taken, left: Object.keys(left.suites).length ? left : null }
 }
 
-const empty = (): Store => storeSchema.parse({})
+/** This project's file, adopting its share of the old store first. */
+function where(projectPath: string | null | undefined) {
+  const at = place(projectPath, 'suites')
+  if ('path' in at) adopt(at, 'suites', split)
+  return at
+}
 
 /**
  * The store, freshly read.
@@ -124,8 +145,10 @@ const empty = (): Store => storeSchema.parse({})
  * would mean an agent configuring a suite and the page listing them could
  * disagree for as long as the cache lived.
  */
-function read(): Store {
-  const path = file()
+function read(projectPath: string | null | undefined): Store {
+  const at = where(projectPath)
+  if (!('path' in at)) return empty()
+  const path = at.path
   if (!existsSync(path)) return empty()
   try {
     return storeSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
@@ -134,9 +157,19 @@ function read(): Store {
   }
 }
 
-/** Whether the file exists and cannot be read — the one state that blocks a write. */
-export function trouble(): string | null {
-  const path = file()
+/**
+ * Why nothing can be written for this project, or null.
+ *
+ * Three things block a write: no project (`NOWHERE`), a project this app will
+ * not work under, and a file that exists and cannot be read. The page shows
+ * this, so it is null for "no project" — the page says that in its own words —
+ * unless `strict`, which is what every write asks for.
+ */
+export function trouble(projectPath: string | null | undefined, strict = false): string | null {
+  const at = where(projectPath)
+  if ('nowhere' in at) return strict ? NOWHERE : null
+  if ('trouble' in at) return at.trouble
+  const path = at.path
   if (!existsSync(path)) return null
   try {
     storeSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
@@ -148,18 +181,26 @@ export function trouble(): string | null {
   }
 }
 
-function save(store: Store): void {
-  writeFileSync(file(), `${JSON.stringify(storeSchema.parse(store), null, 2)}\n`)
+/** Write, creating this module's folder first — the only place that does. A sentence back if refused. */
+function save(projectPath: string | null | undefined, store: Store): string | null {
+  const at = where(projectPath)
+  if ('nowhere' in at) return NOWHERE
+  if ('trouble' in at) return at.trouble
+  const refused = makeDir(at.root)
+  if (refused) return refused
+  writeFileSync(at.path, `${JSON.stringify(storeSchema.parse(store), null, 2)}\n`)
+  return null
 }
 
-/** Every configured suite, by name. */
-export function suites(): Suite[] {
-  return Object.values(read().suites).sort((a, b) => a.name.localeCompare(b.name))
+/** Every suite configured for this project, by name. */
+export function suites(projectPath: string | null | undefined): Suite[] {
+  return Object.values(read(projectPath).suites).sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** One suite, or null. This is the lookup the run door uses and the only one. */
-export function suite(name: string): Suite | null {
-  return read().suites[name] ?? null
+export function suite(projectPath: string | null | undefined, name: string): Suite | null {
+  const all = read(projectPath).suites
+  return Object.hasOwn(all, name) ? (all[name] ?? null) : null
 }
 
 export type Configured = { ok: true; suite: Suite } | { ok: false; error: string }
@@ -178,7 +219,7 @@ export type Configured = { ok: true; suite: Suite } | { ok: false; error: string
  * is what stops an agent fixing a timeout on a suite whose name was never going
  * to be accepted.
  */
-export function configure(input: {
+export function configure(projectPath: string | null | undefined, input: {
   name: unknown
   what: unknown
   command: unknown
@@ -186,7 +227,7 @@ export function configure(input: {
   timeoutMs?: unknown
   by?: unknown
 }): Configured {
-  const blocked = trouble()
+  const blocked = trouble(projectPath, true)
   if (blocked) return { ok: false, error: `nothing was configured. ${blocked}` }
 
   /* Not truncated to the bound — TESTED against it. A name silently cut to forty
@@ -261,7 +302,7 @@ export function configure(input: {
   const asked = typeof input.timeoutMs === 'number' && Number.isFinite(input.timeoutMs) ? input.timeoutMs : BOUNDS.TIMEOUT_DEFAULT_MS
   const timeoutMs = Math.min(BOUNDS.TIMEOUT_MAX_MS, Math.max(BOUNDS.TIMEOUT_MIN_MS, Math.round(asked)))
 
-  const store = read()
+  const store = read(projectPath)
   const suite: Suite = {
     name,
     what,
@@ -272,18 +313,22 @@ export function configure(input: {
     at: new Date().toISOString(),
   }
   store.suites[name] = suite
-  save(store)
+  const refused = save(projectPath, store)
+  if (refused) return { ok: false, error: `nothing was configured. ${refused}` }
   return { ok: true, suite }
 }
 
 /** Take a suite off the list. Runs already recorded against it are left alone. */
-export function forget(name: string): { ok: boolean; error?: string } {
-  const blocked = trouble()
+export function forget(projectPath: string | null | undefined, name: string): { ok: boolean; error?: string } {
+  const blocked = trouble(projectPath, true)
   if (blocked) return { ok: false, error: `nothing was changed. ${blocked}` }
-  const store = read()
-  if (!store.suites[name]) return { ok: false, error: `there is no suite called "${name.slice(0, BOUNDS.NAME)}".` }
+  const store = read(projectPath)
+  if (!Object.hasOwn(store.suites, name)) {
+    return { ok: false, error: `there is no suite called "${name.slice(0, BOUNDS.NAME)}" in this project.` }
+  }
   delete store.suites[name]
-  save(store)
+  const refused = save(projectPath, store)
+  if (refused) return { ok: false, error: `nothing was changed. ${refused}` }
   /* The runs are deliberately kept. A record saying "the unit suite failed
      against !1848 on Tuesday" is a fact about Tuesday, and it does not stop being
      one because somebody has since deleted the suite. The page prints such a run

@@ -66,6 +66,8 @@ export interface Live {
 }
 
 export interface State {
+  /** No project is open, so there is no store to read. Not a fault; the page says so. */
+  nowhere: boolean
   suites: Suite[]
   active: Live[]
   slots: number
@@ -75,10 +77,14 @@ export interface State {
 }
 
 /** Everything this app holds that does not depend on which references are picked. */
-export async function state(): Promise<State> {
-  const response = await fetch('/api/state')
+/** `project=…`, or nothing: the store lives inside the project the host named. */
+const scoped = (project: string | null) => (project === null ? '' : `project=${encodeURIComponent(project)}`)
+
+export async function state(project: string | null): Promise<State> {
+  const response = await fetch(`/api/state?${scoped(project)}`)
   const body = (await response.json()) as Partial<State>
   return {
+    nowhere: body.nowhere === true,
     suites: Array.isArray(body.suites) ? body.suites : [],
     active: Array.isArray(body.active) ? body.active : [],
     slots: typeof body.slots === 'number' ? body.slots : 0,
@@ -98,9 +104,9 @@ export async function state(): Promise<State> {
  * never meant to be there, and "nothing has been run against this" is the single
  * most important sentence this page has.
  */
-export async function standings(refs: string[]): Promise<Standing[]> {
+export async function standings(project: string | null, refs: string[]): Promise<Standing[]> {
   if (!refs.length) return []
-  const response = await fetch(`/api/standings?refs=${encodeURIComponent(refs.join(','))}`)
+  const response = await fetch(`/api/standings?refs=${encodeURIComponent(refs.join(','))}&${scoped(project)}`)
   const body = (await response.json()) as { standings?: unknown }
   return Array.isArray(body.standings) ? (body.standings as Standing[]) : []
 }
@@ -119,8 +125,8 @@ export type Started = { ok: true; run: Run } | { ok: false; error: string }
  * pressed. Refusals here are ordinary — the suite is already running, both slots
  * are busy — and each one names what to do instead.
  */
-export async function run(suite: string, ref: string): Promise<Started> {
-  const body = (await post('/api/run', { suite, ref })) as { ok?: unknown; run?: unknown; error?: unknown }
+export async function run(project: string | null, suite: string, ref: string): Promise<Started> {
+  const body = (await post('/api/run', { project, suite, ref })) as { ok?: unknown; run?: unknown; error?: unknown }
   if (body.ok === true && body.run) return { ok: true, run: body.run as Run }
   return { ok: false, error: typeof body.error === 'string' ? body.error : 'it did not start, and said nothing about why' }
 }
