@@ -176,7 +176,7 @@ function escapes(root: string, child: string): string | null {
  * delete them with the temporary directory.
  */
 export function legacyDir(): string {
-  return process.env.TESTS_DATA ?? join(process.cwd(), 'data')
+  return process.env.TESTS_DATA ?? join(process.cwd(), 'data') // kehikot-storage: allow pre-.kehikot location, read only to migrate it
 }
 
 /**
