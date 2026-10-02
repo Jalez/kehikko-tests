@@ -1,8 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { z } from 'zod'
 
-import { dataDir } from '../store.ts'
+import { adopt, claim, makeDir, place } from '../store.ts'
 
 /**
  * What was run, against what, and how it went.
@@ -97,14 +96,44 @@ export const KEEP_PER_REF = 20
 /** How many output lines are kept with a finished run. */
 export const KEEP_LINES = 200
 
-function file(): string {
-  return join(dataDir(), 'runs.json')
-}
-
 const empty = (): Store => storeSchema.parse({})
 
-function read(): Store {
-  const path = file()
+/**
+ * This project's share of the old single `runs.json`: every run whose recorded
+ * directory is inside it (see `claim` in `../store.ts`), and every run whose
+ * directory names nothing — the oldest records carry `dir: ''`, and nothing
+ * else could ever place those.
+ */
+function split(legacy: unknown, root: string): { taken: Store; left: Store | null } | null {
+  const parsed = storeSchema.safeParse(legacy)
+  if (!parsed.success) return null
+  const taken: Store = { runs: {} }
+  const left: Store = { runs: {} }
+  let took = 0
+  let kept = 0
+  for (const [ref, list] of Object.entries(parsed.data.runs)) {
+    for (const one of list) {
+      const into = claim(root, one.dir) === 'theirs' ? left : taken
+      ;(into.runs[ref] ??= []).push(one)
+      if (into === taken) took += 1
+      else kept += 1
+    }
+  }
+  if (!took) return null
+  return { taken, left: kept ? left : null }
+}
+
+/** This project's file, adopting its share of the old store first. */
+function where(projectPath: string | null | undefined) {
+  const at = place(projectPath, 'runs')
+  if ('path' in at) adopt(at, 'runs', split)
+  return at
+}
+
+function read(projectPath: string | null | undefined): Store {
+  const at = where(projectPath)
+  if (!('path' in at)) return empty()
+  const path = at.path
   if (!existsSync(path)) return empty()
   try {
     return storeSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
@@ -116,8 +145,12 @@ function read(): Store {
   }
 }
 
-export function trouble(): string | null {
-  const path = file()
+/** A project this app will not work under, or a file that cannot be read — either blocks a write. Null for no project. */
+export function trouble(projectPath: string | null | undefined): string | null {
+  const at = where(projectPath)
+  if ('nowhere' in at) return null
+  if ('trouble' in at) return at.trouble
+  const path = at.path
   if (!existsSync(path)) return null
   try {
     storeSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
@@ -129,23 +162,28 @@ export function trouble(): string | null {
   }
 }
 
-function save(store: Store): void {
-  writeFileSync(file(), `${JSON.stringify(storeSchema.parse(store), null, 2)}\n`)
+/** Write, creating this module's folder first. Quietly nothing when there is no project to write in. */
+function save(projectPath: string | null | undefined, store: Store): void {
+  const at = where(projectPath)
+  if (!('path' in at)) return
+  if (makeDir(at.root)) return
+  writeFileSync(at.path, `${JSON.stringify(storeSchema.parse(store), null, 2)}\n`)
 }
 
-/** Every run recorded against one reference, newest first. */
-export function runsFor(ref: string): Run[] {
-  return [...(read().runs[ref] ?? [])].reverse()
+/** Every run recorded against one reference in this project, newest first. */
+export function runsFor(projectPath: string | null | undefined, ref: string): Run[] {
+  const all = read(projectPath).runs
+  return [...(Object.hasOwn(all, ref) ? (all[ref] ?? []) : [])].reverse()
 }
 
-/** Every reference anything has been run against. */
-export function knownRefs(): string[] {
-  return Object.keys(read().runs).sort()
+/** Every reference anything has been run against in this project. */
+export function knownRefs(projectPath: string | null | undefined): string[] {
+  return Object.keys(read(projectPath).runs).sort()
 }
 
-/** One run wherever it is filed, for a stream that has only an id. */
-export function run(id: string): Run | null {
-  for (const list of Object.values(read().runs)) {
+/** One run wherever it is filed in this project, for a stream that has only an id. */
+export function run(projectPath: string | null | undefined, id: string): Run | null {
+  for (const list of Object.values(read(projectPath).runs)) {
     const found = list.find((r) => r.id === id)
     if (found) return found
   }
@@ -162,23 +200,27 @@ export function run(id: string): Run | null {
  * dies mid-run that record is left saying `running` forever, which is why
  * `sweep()` below exists and is called at startup.
  */
-export function record(run: Run): void {
-  if (trouble()) return
-  const store = read()
+export function record(projectPath: string | null | undefined, run: Run): void {
+  if (trouble(projectPath)) return
+  const store = read(projectPath)
   const list = store.runs[run.ref] ?? []
   const at = list.findIndex((r) => r.id === run.id)
   if (at >= 0) list[at] = run
   else list.push(run)
   /* Oldest first out. The newest runs are the ones anybody is looking at. */
   store.runs[run.ref] = list.slice(-KEEP_PER_REF)
-  save(store)
+  save(projectPath, store)
 }
 
 /**
  * Every run left saying `running` by a process that is no longer here.
  *
- * Called once at startup, and it is not housekeeping — it is the difference
- * between an honest page and a lying one. A run only exists inside the process
+ * Called whenever a project's runs are read — not once at startup, because
+ * there is no list of projects at startup: the runs live inside each project,
+ * and this server learns of one only when somebody opens it. `alive` is the
+ * live-run table of THIS process, so a run that is genuinely going is left
+ * alone and only an orphan is swept. It is not housekeeping — it is the
+ * difference between an honest page and a lying one. A run only exists inside the process
  * that spawned it: kill this server and the child dies with it (see the process
  * group note in `spawn.ts`), but the record on disk still says `running`. A page
  * that then drew a spinner would be claiming a process is alive that this
@@ -188,13 +230,13 @@ export function record(run: Run): void {
  * server went away while this was running" is a real thing to have happened to a
  * run and somebody may need to know it did.
  */
-export function sweep(): number {
-  if (trouble()) return 0
-  const store = read()
+export function sweep(projectPath: string | null | undefined, alive: (id: string) => boolean): number {
+  if (trouble(projectPath)) return 0
+  const store = read(projectPath)
   let swept = 0
   for (const [ref, list] of Object.entries(store.runs)) {
     store.runs[ref] = list.map((r) => {
-      if (r.verdict !== 'running') return r
+      if (r.verdict !== 'running' || alive(r.id)) return r
       swept += 1
       return {
         ...r,
@@ -204,7 +246,7 @@ export function sweep(): number {
       }
     })
   }
-  if (swept) save(store)
+  if (swept) save(projectPath, store)
   return swept
 }
 
@@ -223,8 +265,8 @@ export interface Standing {
   bySuite: Run[]
 }
 
-export function standingFor(ref: string): Standing {
-  const all = runsFor(ref)
+export function standingFor(projectPath: string | null | undefined, ref: string): Standing {
+  const all = runsFor(projectPath, ref)
   const seen = new Set<string>()
   const bySuite: Run[] = []
   for (const r of all) {

@@ -17,7 +17,7 @@ Three sentences, and the third is the one that makes it more than a task runner:
 
 1. **You say how the project is tested, over MCP.** A suite is a name, a
    sentence saying what it proves, an argument array and an absolute directory.
-   That configuration is this app's, held beside the program.
+   That configuration lives in the project itself, at `.kehikot/tests/`.
 2. **You run one, and watch it.** Output, pass and fail counts as they arrive,
    and the verdict — streamed over Server-Sent Events rather than polled for.
 3. **It is keyed to a reference.** What was run for `!1848`, when, by whom, and
@@ -39,7 +39,24 @@ anywhere in the store, and the verdicts are six words rather than two:
 | `crashed` | it could not start, or something outside killed it.        |
 
 And a reference with no runs gets a sentence rather than a mark: *nothing has
-been run against this on this machine — that is not a pass and not a failure.*
+been run against this in this project — that is not a pass and not a failure.*
+
+## Where the data lives
+
+Per project, at `<project>/.kehikot/tests/suites.json` and `runs.json`, using the
+`roadmap-module-protocol` helpers every module shares. The page learns the
+project from `roadmap.context.projectPath`; MCP tools take a required `project`
+argument (the absolute path). With no project the page says so and every write
+is refused with a sentence — nothing falls back to a folder beside this program.
+Whether `.kehikot/` is committed is the host's per-project setting.
+
+The old single store (`data/` beside this program) is handed out on first
+contact: when a project is opened, it takes every legacy suite and run whose
+recorded `dir` is inside it (unless a nested repository or kehikot project sits
+between), plus anything whose `dir` is empty or no longer exists. The rest stays
+in `data/` for its own project; `data/` is removed once empty. A project that
+already has its own file is never written over. `TESTS_DATA` now only says where
+that old store is looked for, which is what the tests use it for.
 
 ## Running processes safely, which is the whole design
 
@@ -113,6 +130,7 @@ this page's normal case is three per cent of one.
     suites/store.ts    how a project is tested — and the refusals that make spawning safe
     runs/spawn.ts      the spawn, the bounds, the kill, the event bus
     runs/store.ts      what was run against what, and the six verdicts
+    store.ts           where a project's files are, the fence, and the legacy hand-out
     runs/ago.ts        the one function both sides need, and why it is not in the store
     src/               the page: the wire, the stream, the cards
     src/index.css      the palette, the seven verdict colours, and the container container

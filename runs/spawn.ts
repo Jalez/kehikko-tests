@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 
+import { NOWHERE, projectOf } from '../store.ts'
 import { suite as findSuite, suites } from '../suites/store.ts'
 import { fold, NOTHING, type Counts } from './counts.ts'
 import { KEEP_LINES, record, type Run, type Verdict } from './store.ts'
@@ -86,10 +87,10 @@ const GRACE_MS = 3_000
 const MAX_LINE = 2_000
 
 export type Event =
-  | { kind: 'started'; run: Run }
-  | { kind: 'line'; id: string; stream: 'out' | 'err'; text: string }
-  | { kind: 'counts'; id: string; passed: number | null; failed: number | null }
-  | { kind: 'ended'; run: Run }
+  | { kind: 'started'; project: string; run: Run }
+  | { kind: 'line'; project: string; id: string; stream: 'out' | 'err'; text: string }
+  | { kind: 'counts'; project: string; id: string; passed: number | null; failed: number | null }
+  | { kind: 'ended'; project: string; run: Run }
 
 type Listener = (event: Event) => void
 
@@ -124,6 +125,8 @@ function tell(event: Event): void {
 }
 
 interface Live {
+  /** The project this run's suite was configured in, and where its record is written. Resolved. */
+  project: string
   run: Run
   child: ChildProcess
   timer: ReturnType<typeof setTimeout>
@@ -140,13 +143,24 @@ interface Live {
 const live = new Map<string, Live>()
 
 /** Every run alive right now, with what it has said so far. */
-export function active(): { run: Run; lines: string[]; dropped: number }[] {
-  return [...live.values()].map((l) => ({ run: { ...l.run, tail: l.lines }, lines: l.lines, dropped: l.dropped }))
+export function active(project?: string | null): { project: string; run: Run; lines: string[]; dropped: number }[] {
+  return [...live.values()]
+    .filter((l) => project === undefined || l.project === project)
+    .map((l) => ({ project: l.project, run: { ...l.run, tail: l.lines }, lines: l.lines, dropped: l.dropped }))
 }
 
-/** Whether a suite is running right now, which the page draws and `begin` refuses on. */
-export function runningSuite(name: string): Run | null {
-  for (const l of live.values()) if (l.run.suite === name) return l.run
+/** Whether a run is going in this process — what `sweep` asks before calling one an orphan. */
+export function isLive(id: string): boolean {
+  return live.has(id)
+}
+
+/**
+ * Whether a suite is running right now in this project, which the page draws
+ * and `begin` refuses on. Suite names are per project, so two projects' `unit`
+ * suites are two suites in two directories and may run side by side.
+ */
+export function runningSuite(project: string | null, name: string): Run | null {
+  for (const l of live.values()) if (l.project === project && l.run.suite === name) return l.run
   return null
 }
 
@@ -159,20 +173,22 @@ export type Begun = { ok: true; run: Run } | { ok: false; error: string }
  * refusal is a sentence rather than a code, because the caller is as often an
  * agent as a person and an agent given `409` will retry it.
  */
-export function begin(input: { suite: string; ref?: string; by?: string }): Begun {
+export function begin(input: { project: string | null | undefined; suite: string; ref?: string; by?: string }): Begun {
+  const project = projectOf(input.project)
+  if (project === null) return { ok: false, error: `nothing was started. ${NOWHERE}` }
   const name = String(input.suite ?? '').slice(0, 40)
-  const found = findSuite(name)
+  const found = findSuite(project, name)
   if (!found) {
-    const known = suites().map((s) => s.name)
+    const known = suites(project).map((s) => s.name)
     return {
       ok: false,
       error: known.length
         ? `there is no suite called "${name}". Configured here: ${known.join(', ')}. Suites are configured over this app's MCP door with configure_suite; a run only ever names one.`
-        : `there is no suite called "${name}", and in fact nothing has been configured on this machine yet. Say how this project is tested first, with configure_suite over this app's MCP door.`,
+        : `there is no suite called "${name}", and in fact nothing has been configured in this project yet. Say how it is tested first, with configure_suite over this app's MCP door.`,
     }
   }
 
-  const already = runningSuite(name)
+  const already = runningSuite(project, name)
   if (already) {
     /* One at a time per suite, and the reason is not politeness: two copies of a
        test suite in one directory share a build cache, a port, a database and a
@@ -251,12 +267,13 @@ export function begin(input: { suite: string; ref?: string; by?: string }): Begu
        common "there is no such program" case lands in the `error` handler below,
        and both end as `crashed` with the message the operating system gave. */
     const dead: Run = { ...run, verdict: 'crashed', endedAt: new Date().toISOString(), tail: [String(e)] }
-    record(dead)
-    tell({ kind: 'ended', run: dead })
+    record(project, dead)
+    tell({ kind: 'ended', project, run: dead })
     return { ok: false, error: `"${name}" could not be started: ${e instanceof Error ? e.message : String(e)}` }
   }
 
   const state: Live = {
+    project,
     run,
     child,
     counts: { ...NOTHING },
@@ -283,8 +300,8 @@ export function begin(input: { suite: string; ref?: string; by?: string }): Begu
      mid-run has to be able to find out that something is going; discovering it
      only from the live stream would mean a page loaded one second too late
      reports that nothing was ever run. */
-  record(run)
-  tell({ kind: 'started', run })
+  record(project, run)
+  tell({ kind: 'started', project, run })
 
   child.stdout?.on('data', (chunk: Buffer) => take(id, 'out', chunk))
   child.stderr?.on('data', (chunk: Buffer) => take(id, 'err', chunk))
@@ -357,11 +374,11 @@ function say(id: string, stream: 'out' | 'err', raw: string): void {
   }
   const was = l.counts
   l.counts = fold(was, text)
-  tell({ kind: 'line', id, stream, text })
+  tell({ kind: 'line', project: l.project, id, stream, text })
   if (l.counts.passed !== was.passed || l.counts.failed !== was.failed) {
     /* Sent as it changes rather than only at the end, because watching the
        numbers move is the difference between a progress bar and a spinner. */
-    tell({ kind: 'counts', id, passed: l.counts.passed, failed: l.counts.failed })
+    tell({ kind: 'counts', project: l.project, id, passed: l.counts.passed, failed: l.counts.failed })
   }
 }
 
@@ -425,8 +442,8 @@ function finish(id: string, verdict: Verdict): void {
     dropped: l.dropped,
   }
   live.delete(id)
-  record(done)
-  tell({ kind: 'ended', run: done })
+  record(l.project, done)
+  tell({ kind: 'ended', project: l.project, run: done })
   for (const w of waiting.get(id) ?? []) w(done)
   waiting.delete(id)
 }

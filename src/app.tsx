@@ -97,8 +97,6 @@ export function App() {
   /** Which run a reader has asked to stop and not yet confirmed. See `Stop` below. */
   const [confirming, setConfirming] = useState<string | null>(null)
 
-  const { state, live, connected, ended } = useRuns()
-
   const onGoto = useCallback<GotoHandler>((message, answer) => {
     /* A `goto` may name an epic, a step, or a reference, and only the last of
        those is a thing this container draws. Answering "not found" for the other two
@@ -119,7 +117,11 @@ export function App() {
     answer(true, '')
   }, [])
 
-  const { sight, selection, resize } = useRoadmap(ID, onGoto)
+  const { sight, selection, project, resize } = useRoadmap(ID, onGoto)
+
+  /* After the roadmap, because which store is read depends on which project
+     the host named: suites and runs live inside it, at `.kehikot/tests/`. */
+  const { state, live, connected, ended } = useRuns(project)
 
   /* The host's selection wins the moment there is one — and the guard is not
      tidiness. `selection` is a fresh array on every context, and the host sends a
@@ -163,7 +165,7 @@ export function App() {
       return
     }
     let alive = true
-    void standings(refs)
+    void standings(project, refs)
       .then((rows) => {
         if (alive) setStanding(rows)
       })
@@ -173,7 +175,7 @@ export function App() {
     return () => {
       alive = false
     }
-  }, [refs, endedCount])
+  }, [project, refs, endedCount])
 
   /**
    * What each selected reference IS, where the host's reading says.
@@ -195,9 +197,9 @@ export function App() {
   })
 
   const press = useCallback(async (suite: string, ref: string) => {
-    const answer = await startRun(suite, ref)
+    const answer = await startRun(project, suite, ref)
     setTrouble((was) => ({ ...was, [`${ref}|${suite}`]: answer.ok ? '' : answer.error }))
-  }, [])
+  }, [project])
 
   const liveFor = useCallback((ref: string) => live.filter((l) => l.run.ref === ref), [live])
 
@@ -232,6 +234,17 @@ export function App() {
       )}
 
       {state?.trouble ? <p className={TROUBLE}>{state.trouble}</p> : null}
+      {/*
+        No project: said in words, not drawn as "nothing configured". Suites and
+        runs live inside the project the host names, and with none there is no
+        store to read — which is a different fact from an empty one.
+      */}
+      {state?.nowhere ? (
+        <p className={SAID}>
+          No project is open, so there are no suites to show and nowhere to record a run. How a project is tested lives
+          inside it, at .kehikot/tests/ — open a project on this canvas.
+        </p>
+      ) : null}
 
       {/*
         Whether the page is actually live, said rather than implied, and what
@@ -379,7 +392,7 @@ export function RefCard({
            a failure. It is prose rather than a chip on purpose — see the essay at
            the top of this file. */
         <p className={SAID}>
-          Nothing has been run against this on this machine. That is not a pass and not a failure — nobody has asked.
+          Nothing has been run against this in this project. That is not a pass and not a failure — nobody has asked.
         </p>
       ) : null}
 
@@ -458,7 +471,7 @@ export function RefCard({
           )
         })
       ) : (
-        <p className={SAID}>No suites are configured on this machine, so there is nothing that could be run.</p>
+        <p className={SAID}>No suites are configured in this project, so there is nothing that could be run.</p>
       )}
     </div>
   )
@@ -535,7 +548,7 @@ function SuiteList({
   trouble: Record<string, string>
   onPick: (ref: string) => void
 }) {
-  if (!state) return null
+  if (!state || state.nowhere) return null
   const refs = state.refs.filter(Boolean)
   return (
     <>
@@ -576,7 +589,7 @@ function SuiteList({
           ))
         ) : (
           <p className={SAID}>
-            Nothing has been configured on this machine. This app does not guess how a project is tested and will not
+            Nothing has been configured in this project. This app does not guess how a project is tested and will not
             run anything it was not told about — an agent says so over this app’s MCP door, with a name, an argument
             array and a directory, and then there is something here to run.
           </p>

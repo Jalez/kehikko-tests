@@ -1,7 +1,8 @@
 import { ID, MANIFEST, VERSION } from './manifest.ts'
+import { NOWHERE, projectOf } from './store.ts'
 import { BOUNDS, configure, forget, spell, suites, trouble as suiteTrouble } from './suites/store.ts'
-import { active, begin, end, MAX_LIVE, runningSuite, waitFor } from './runs/spawn.ts'
-import { ago, knownRefs, run as findRun, standingFor, type Run } from './runs/store.ts'
+import { active, begin, end, isLive, MAX_LIVE, runningSuite, waitFor } from './runs/spawn.ts'
+import { ago, knownRefs, run as findRun, standingFor, sweep, type Run } from './runs/store.ts'
 
 /**
  * Every door this app answers on that is not the page and not the event stream.
@@ -83,6 +84,29 @@ const MAX_BY = 80
 const MAX_REFS_PER_ASK = 64
 /** The longest an MCP `run_tests` may hold its request open waiting for a verdict. */
 const MAX_WAIT_MS = 600_000
+/** As long as a path may be, matching the protocol's own `LIMITS.PATH`. */
+const MAX_PROJECT = 4096
+
+/**
+ * The project a caller named, resolved, with this process's orphaned runs in it
+ * swept — or null for none.
+ *
+ * Every door that reads a project goes through here, so `sweep` happens on the
+ * read that would otherwise have drawn an orphan as running. See `sweep` in
+ * `runs/store.ts` for why it is per project and not once at startup.
+ */
+function projectIn(value: unknown): string | null {
+  const project = projectOf(str(value, MAX_PROJECT))
+  if (project !== null) sweep(project, isLive)
+  return project
+}
+
+/** Why a named project cannot be used, for a door that has to say so. */
+function refusedProject(value: unknown): string {
+  const named = str(value, MAX_PROJECT)
+  if (!named) return NOWHERE
+  return suiteTrouble(named, true) ?? NOWHERE
+}
 
 function str(value: unknown, max: number): string {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value).slice(0, max)
@@ -133,15 +157,16 @@ export function tellRun(r: Run): string {
 }
 
 /** What has been run against one reference, in words, including having run nothing. */
-export function tellRef(ref: string): string {
-  const s = standingFor(ref)
+export function tellRef(project: string, ref: string): string {
+  const s = standingFor(project, ref)
   if (!s.runs.length) {
     /* The sentence this whole module is for. Nothing having been run is an
        ordinary state with a remedy, and it is not a failure, an error or an
        empty result — an agent told "no data" here would reasonably conclude the
        tests were red. */
-    return `${ref}: nothing has been run against this reference on this machine. That is not a pass and not a failure — nobody has asked. ${
-      suites().length ? `Configured suites: ${suites().map((x) => x.name).join(', ')}.` : 'No suites are configured yet either.'
+    const configured = suites(project)
+    return `${ref}: nothing has been run against this reference in this project. That is not a pass and not a failure — nobody has asked. ${
+      configured.length ? `Configured suites: ${configured.map((x) => x.name).join(', ')}.` : 'No suites are configured yet either.'
     }`
   }
   const lines = s.bySuite.map((r) => `  ${tellRun(r)}`)
@@ -159,16 +184,23 @@ export function tellRef(ref: string): string {
  * The agent's door
  * ------------------------------------------------------------------ */
 
+/** The `project` argument every project-bound tool takes, described once. */
+const PROJECT = {
+  type: 'string',
+  description:
+    'Absolute path of the project folder — the same path a host puts in roadmap.context.projectPath. Suites and runs '
+    + 'live inside it, at .kehikot/tests/. Required: this app does not guess which project was meant.',
+} as const
+
 function tools() {
-  const configured = suites().map((s) => s.name)
   return [
     {
       name: 'how_tested',
       description:
-        'How this project is tested, as this machine has been told: every configured suite, the exact command it runs, '
+        'How this project is tested, as it has been told: every configured suite, the exact command it runs, '
         + 'where it runs, and what it proves. Also what is running right now. Read this before running anything — the '
         + 'names here are the only things run_tests accepts.',
-      inputSchema: { type: 'object', properties: {} },
+      inputSchema: { type: 'object', properties: { project: PROJECT }, required: ['project'] },
     },
     {
       name: 'configure_suite',
@@ -181,6 +213,7 @@ function tools() {
       inputSchema: {
         type: 'object',
         properties: {
+          project: PROJECT,
           name: { type: 'string', description: 'Lowercase letters, digits, dash, underscore. e.g. "unit", "e2e-smoke".' },
           what: { type: 'string', description: 'One sentence: what passing this suite would mean.' },
           command: {
@@ -195,42 +228,46 @@ function tools() {
           },
           agent: { type: 'string', description: 'Your name, recorded against the suite.' },
         },
-        required: ['name', 'what', 'command', 'dir'],
+        required: ['project', 'name', 'what', 'command', 'dir'],
       },
     },
     {
       name: 'forget_suite',
       description: 'Take a suite off the list. Runs already recorded against it are kept — they are facts about what happened.',
-      inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+      inputSchema: {
+        type: 'object',
+        properties: { project: PROJECT, name: { type: 'string' } },
+        required: ['project', 'name'],
+      },
     },
     {
       name: 'run_tests',
       description:
         `Run one configured suite, optionally against the issue, merge request or pull request it is being run FOR — so `
-        + `the answer to "was this change tested" has something in it. Suites configured as this server started: `
-        + `${configured.length ? configured.join(', ') : '(none yet — use configure_suite first)'}; the list is editable, `
-        + `so call how_tested for the one in force rather than trusting this sentence, which your client cached. This `
+        + `the answer to "was this change tested" has something in it. Suites are per project; call how_tested for the `
+        + `ones configured in yours. This `
         + `server runs at most ${MAX_LIVE} suites at once and one copy of any given suite, and refuses rather than `
         + `queueing. By default it waits for the verdict; pass wait: 0 to be told the run started and read it later with `
         + `test_runs.`,
       inputSchema: {
         type: 'object',
         properties: {
+          project: PROJECT,
           suite: { type: 'string', description: 'The suite name, as how_tested lists it.' },
           ref: { type: 'string', description: 'What this run is for: "!1848", "gh#1888", "#204". Optional.' },
           waitMs: { type: 'number', description: 'How long to wait for the verdict. 0 returns immediately. Default 120000.' },
           agent: { type: 'string' },
         },
-        required: ['suite'],
+        required: ['project', 'suite'],
       },
     },
     {
       name: 'test_runs',
       description:
-        'What has been run against a reference on this machine, and how it went. A reference nothing has been run '
+        'What has been run against a reference in this project, and how it went. A reference nothing has been run '
         + 'against says so in those words — that is not a pass and not a failure. Omit the ref for every reference '
         + 'anything is recorded against.',
-      inputSchema: { type: 'object', properties: { ref: { type: 'string' } } },
+      inputSchema: { type: 'object', properties: { project: PROJECT, ref: { type: 'string' } }, required: ['project'] },
     },
     {
       name: 'stop_run',
@@ -240,12 +277,12 @@ function tools() {
   ]
 }
 
-function suitesText(): string {
-  const list = suites()
+function suitesText(project: string): string {
+  const list = suites(project)
   const going = active()
   const head = list.length
-    ? list.map((s) => `${spell(s)}${runningSuite(s.name) ? '\n      RUNNING NOW' : ''}`).join('\n')
-    : 'Nothing has been configured on this machine. This app does not guess how a project is tested — say so with configure_suite, and nothing runs until you do.'
+    ? list.map((s) => `${spell(s)}${runningSuite(project, s.name) ? '\n      RUNNING NOW' : ''}`).join('\n')
+    : 'Nothing has been configured in this project. This app does not guess how a project is tested — say so with configure_suite, and nothing runs until you do.'
   const busy = going.length
     ? `\n\n${going.length} of ${MAX_LIVE} run slots busy: ${going.map((g) => `${g.run.suite} (${g.run.id})`).join(', ')}`
     : `\n\n0 of ${MAX_LIVE} run slots busy.`
@@ -295,10 +332,16 @@ async function mcp(rpc: Rpc): Promise<Reply> {
     const name = String(rpc.params?.name ?? '')
     const args = (rpc.params?.arguments ?? {}) as Record<string, unknown>
     try {
-      if (name === 'how_tested') return text(suitesText())
+      /* Every tool but stop_run is about one project's suites and runs, and is
+         refused with a sentence when it names none — see `NOWHERE`. stop_run
+         takes a run id, which is unique across projects. */
+      const project = name === 'stop_run' ? null : projectIn(args.project)
+      if (name !== 'stop_run' && project === null) return text(refusedProject(args.project), true)
+
+      if (name === 'how_tested') return text(suitesText(project as string))
 
       if (name === 'configure_suite') {
-        const out = configure({
+        const out = configure(project, {
           name: args.name,
           what: args.what,
           command: args.command,
@@ -311,13 +354,14 @@ async function mcp(rpc: Rpc): Promise<Reply> {
       }
 
       if (name === 'forget_suite') {
-        const out = forget(str(args.name, BOUNDS.NAME))
+        const out = forget(project, str(args.name, BOUNDS.NAME))
         if (!out.ok) return text(out.error ?? 'it did not work', true)
         return text(`"${str(args.name, BOUNDS.NAME)}" is off the list. Runs already recorded against it are kept.`)
       }
 
       if (name === 'run_tests') {
         const started = begin({
+          project,
           suite: str(args.suite, BOUNDS.NAME),
           ref: str(args.ref, MAX_REF),
           by: str(args.agent, MAX_BY) || AGENT,
@@ -351,13 +395,13 @@ async function mcp(rpc: Rpc): Promise<Reply> {
 
       if (name === 'test_runs') {
         const ref = str(args.ref, MAX_REF)
-        if (ref) return text(tellRef(ref))
-        const refs = knownRefs()
-        if (!refs.length) return text('Nothing has been run against any reference on this machine yet.')
+        if (ref) return text(tellRef(project as string, ref))
+        const refs = knownRefs(project)
+        if (!refs.length) return text('Nothing has been run against any reference in this project yet.')
         return text(
           refs
             .map((r) => {
-              const s = standingFor(r)
+              const s = standingFor(project, r)
               const label = r || '(no reference)'
               return `${label}: ${s.bySuite.map((x) => `${x.suite} ${x.verdict}`).join(', ')}`
             })
@@ -402,7 +446,8 @@ export async function answer(
   ticket: string | null,
 ): Promise<Reply | null> {
   if (path === '/healthz') {
-    return ok({ ok: true, id: ID, version: VERSION, suites: suites().length, running: active().length, slots: MAX_LIVE })
+    /* No suite count: suites are per project, and a health check is about this program. */
+    return ok({ ok: true, id: ID, version: VERSION, running: active().length, slots: MAX_LIVE })
   }
 
   if (path === '/mcp') {
@@ -417,16 +462,22 @@ export async function answer(
      not a secret, and a ticket on a read would only mean an agent's curl needs
      one to see a page it can already open. */
   if (method === 'GET' && path === '/api/state') {
+    /* One project's, named by `?project=` — the page takes it off
+       `roadmap.context.projectPath`. With none, `nowhere` says so and the page
+       draws that rather than an empty list of suites. */
+    const project = projectIn(query.get('project'))
+    const named = str(query.get('project'), MAX_PROJECT)
     return ok({
       ok: true,
-      suites: suites(),
+      nowhere: !named,
+      suites: suites(project),
       /* The live runs travel with everything they have said so far, so a page
          that has just loaded draws a run in progress with its output rather than
          an empty box that fills in only from the next line onwards. */
-      active: active().map((a) => ({ run: a.run, lines: a.lines, dropped: a.dropped })),
+      active: (project === null ? [] : active(project)).map((a) => ({ run: a.run, lines: a.lines, dropped: a.dropped })),
       slots: MAX_LIVE,
-      refs: knownRefs(),
-      trouble: suiteTrouble(),
+      refs: knownRefs(project),
+      trouble: named ? suiteTrouble(named) : null,
     })
   }
 
@@ -440,12 +491,13 @@ export async function answer(
        It must never be quietly left out: a missing row looks exactly like a row
        that was never meant to be there, and "nothing has been run for this" is
        the single most important thing this module has to be able to say. */
-    return ok({ ok: true, standings: asked.map((ref) => standingFor(ref)) })
+    const project = projectIn(query.get('project'))
+    return ok({ ok: true, standings: asked.map((ref) => standingFor(project, ref)) })
   }
 
   if (method === 'GET' && path === '/api/run') {
     const id = str(query.get('id'), MAX_ID)
-    const found = findRun(id)
+    const found = findRun(projectIn(query.get('project')), id)
     return found ? ok({ ok: true, run: found }) : bad('there is no run with that id here', 404)
   }
 
@@ -459,6 +511,7 @@ export async function answer(
 
     if (path === '/api/run') {
       const started = begin({
+        project: str(body.project, MAX_PROJECT),
         suite: str(body.suite, BOUNDS.NAME),
         ref: str(body.ref, MAX_REF),
         by: OWNER,

@@ -65,13 +65,20 @@ const BEAT_MS = 20_000
  * both `close` and `error` on some failures) and a second detach must not be an
  * error somebody has to remember to guard.
  */
-export function attach(sink: Sink): () => void {
+export function attach(sink: Sink, project: string | null): () => void {
+  /* One project's runs and nothing else. `project` is resolved by the caller
+     (`projectOf`), and so is every event's, so the comparison is between two
+     real paths. With no project there is nothing of this page's to watch — but
+     the stream still opens, so the page can tell "attached and quiet" from
+     "not attached". */
   sink.write('hello', {
-    active: active().map((a) => ({ run: a.run, lines: a.lines, dropped: a.dropped })),
+    active: (project === null ? [] : active(project)).map((a) => ({ run: a.run, lines: a.lines, dropped: a.dropped })),
     slots: MAX_LIVE,
   })
 
-  const off = subscribe((event) => sink.write(event.kind, event))
+  const off = subscribe((event) => {
+    if (project !== null && event.project === project) sink.write(event.kind, event)
+  })
   const beat = setInterval(() => sink.write('beat', { at: Date.now() }), BEAT_MS)
 
   return () => {

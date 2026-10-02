@@ -86,6 +86,12 @@ export interface Roadmap {
    * comes from is `roadmap.context`.
    */
   selection: string[]
+  /**
+   * `roadmap.context.projectPath`, or null when the host has none (or there is
+   * no host). The suites and runs live inside that project, so this is the one
+   * field that changes WHICH store the page reads rather than what it draws.
+   */
+  project: string | null
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
 }
@@ -103,6 +109,7 @@ export type GotoHandler = NonNullable<HostEvents['onGoto']>
 export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
   const [sight, setSight] = useState<Sight>({ at: 'listening' })
   const [selection, setSelection] = useState<string[]>([])
+  const [project, setProject] = useState<string | null>(null)
   const host = useRef<Connection | null>(null)
 
   /**
@@ -217,7 +224,10 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
      * `dark`, so that a host asking for light over a machine set to dark actually
      * gets it — see the media query in `index.css`.
      */
-    const arrived = (context: { epic: string | null; theme: 'light' | 'dark'; selection: string[] }, greeting: boolean) => {
+    const arrived = (
+      context: { epic: string | null; theme: 'light' | 'dark'; selection: string[]; projectPath?: string | null },
+      greeting: boolean,
+    ) => {
       /* A greeting always re-asks, because a greeting means the conversation is
          new: the host greets on every frame LOAD, so one arriving is a page that
          has just come into existence, or a frame that reloaded and has forgotten
@@ -251,6 +261,8 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
        * the epic moved or not, and the refetch below is a separate question.
        */
       setSelection(context.selection)
+      const named = typeof context.projectPath === 'string' && context.projectPath.trim() ? context.projectPath : null
+      setProject(named)
 
       const moved = context.epic !== standingOn.current
       standingOn.current = context.epic
@@ -307,5 +319,5 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
 
   const resize = useCallback((height: number) => host.current?.resize(height), [])
 
-  return useMemo(() => ({ sight, selection, resize }), [sight, selection, resize])
+  return useMemo(() => ({ sight, selection, project, resize }), [sight, selection, project, resize])
 }
