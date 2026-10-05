@@ -10,7 +10,7 @@ import { KEEP_LINES, record, type Run, type Verdict } from './store.ts'
  * Starting a process, which is the one thing in this program that can hurt
  * somebody.
  *
- * The argument for every line below is the one `roadmap/src/launch.ts` makes
+ * The argument for every line below is the one `kehikko/server/launch.ts` makes
  * about starting a module, and it applies harder here, because a module is
  * started by a person pressing a button once and a test suite is meant to be run
  * over and over by an agent. Read that file's opening comment; this is the same

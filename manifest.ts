@@ -1,6 +1,6 @@
-import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'roadmap-module-protocol'
+import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
 
-export const ID = 'roadmap.tests'
+export const ID = 'kehikot.tests'
 export const VERSION = '1.0.0'
 
 /**
@@ -10,7 +10,7 @@ export const VERSION = '1.0.0'
  * It used to be said twice — `--port "${PORT:-7900}"` on the last line of
  * `run.sh` and `Number(process.env.PORT ?? 7900)` in `register.ts` — with
  * nothing keeping the two in step, and a third copy sitting in
- * `~/.roadmap/modules` from whenever somebody last ran the second. Moving this
+ * `~/Library/Application Support/Kehikot/modules` from whenever somebody last ran the second. Moving this
  * app was two edits and a thing to remember.
  *
  * It is here rather than in `vite.config.ts` because `register.ts` needs it too,
@@ -21,7 +21,7 @@ export const VERSION = '1.0.0'
  * It is a PREFERENCE and not a promise. 7820 through 7960 belong to the other
  * modules on this machine, and if something else holds 7900 when this starts
  * then `serves()` moves to the next free port and rewrites the registration to
- * match — see `roadmap-module-protocol/serve`. A host reads the registry, so the
+ * match — see `kehikot-module-protocol/serve`. A host reads the registry, so the
  * registry is what has to be true; this number is only where to start looking.
  */
 export const PREFERRED_PORT = 7900
@@ -62,7 +62,7 @@ export const PREFERRED_PORT = 7900
  *   to whoever is doing it. An app that reported a stage off an exit code would
  *   be putting words in somebody's mouth every time a flake went red at 3am.
  * - **`view:navigate` — not declared.** This is a container a reader is already
- *   standing in; what it wants is to be walked TO, which is `roadmap.goto`
+ *   standing in; what it wants is to be walked TO, which is `kehikot.goto`
  *   arriving and needs no declaration.
  * - **Tracker access — not declared, and there is no capability for it.** This
  *   app never speaks to GitHub or GitLab, holds no credential, and has no code
@@ -117,7 +117,7 @@ export const PREFERRED_PORT = 7900
  *
  * One epic-scoped mode, which becomes an ordinary tab in the mode row beside
  * every other module's. `scope: 'epic'` is what makes a host send
- * `roadmap.context` on load and on every switch, and that context is the only
+ * `kehikot.context` on load and on every switch, and that context is the only
  * inbound channel carrying the selection this page keys everything to.
  *
  * ## Storage, and why THIS module asks for it
@@ -212,7 +212,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * half, written down.
    *
    * It changes nothing about what this app is given. The selection arrives in
-   * `roadmap.context` whether or not this line exists, and if a host ever
+   * `kehikot.context` whether or not this line exists, and if a host ever
    * started withholding the context from modules that had not declared an
    * interest, that host would have turned a line of documentation into a
    * permission over something it was already broadcasting. Nothing here is

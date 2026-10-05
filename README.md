@@ -44,8 +44,8 @@ been run against this in this project — that is not a pass and not a failure.*
 ## Where the data lives
 
 Per project, at `<project>/.kehikot/tests/suites.json` and `runs.json`, using the
-`roadmap-module-protocol` helpers every module shares. The page learns the
-project from `roadmap.context.projectPath`; MCP tools take a required `project`
+`kehikot-module-protocol` helpers every module shares. The page learns the
+project from `kehikot.context.projectPath`; MCP tools take a required `project`
 argument (the absolute path). With no project the page says so and every write
 is refused with a sentence — nothing falls back to a folder beside this program.
 Whether `.kehikot/` is committed is the host's per-project setting.
@@ -116,7 +116,7 @@ the palette, the container and the `dark` variant are all in `src/index.css`.
 
 Two rules in that file are load-bearing rather than cosmetic, and both are argued
 out where they live. The `dark` variant is bound to the `.dark` class the wire
-sets from `roadmap.context.theme`, NOT to `prefers-color-scheme`, so a container told
+sets from `kehikot.context.theme`, NOT to `prefers-color-scheme`, so a container told
 "light" on a machine set to dark does not come out half of each. And every
 responsive class measures the PANE — `@min-[300px]/container:`, against the container
 declared on `<body>` — because a viewport breakpoint fires on the monitor, and

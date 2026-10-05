@@ -2,8 +2,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join, normalize } from 'node:path'
 
-import { WELL_KNOWN } from 'roadmap-module-protocol'
-import { claim, registerAt, sayClaim } from 'roadmap-module-protocol/serve'
+import { LEGACY_WELL_KNOWN, WELL_KNOWN, legacyManifest } from 'kehikot-module-protocol'
+import { claim, frameAncestors, registerAt, sayClaim } from 'kehikot-module-protocol/serve'
 
 import { answer, MANIFEST, TICKET } from './doors.ts'
 import { ID, PREFERRED_PORT, VERSION } from './manifest.ts'
@@ -180,9 +180,8 @@ function pageDocument(): Response {
          too, which is what opening this page directly is. `frame-ancestors` is
          this module's own half of the arrangement: a host says which origins IT
          will frame, and this says who may frame this. Deliberately not a list of
-         one: whoever is running this decides, through `ROADMAP_ORIGIN`. */
-      'content-security-policy':
-        `frame-ancestors 'self' ${process.env.ROADMAP_ORIGIN ?? 'http://127.0.0.1:4181 http://localhost:4181'}`,
+         one: whoever is running this decides, through `KEHIKOT_ORIGINS` (see `frameAncestors()`). */
+      'content-security-policy': frameAncestors(),
     },
   })
 }
@@ -295,6 +294,13 @@ const server = Bun.serve({
        been replaced keep describing itself as the old one. */
     if (path === WELL_KNOWN) {
       return new Response(JSON.stringify(MANIFEST, null, 2), {
+        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+      })
+    }
+
+    /* The same manifest in the spelling a host from before the rename asks for. */
+    if (path === LEGACY_WELL_KNOWN) {
+      return new Response(JSON.stringify(legacyManifest(MANIFEST), null, 2), {
         headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
       })
     }

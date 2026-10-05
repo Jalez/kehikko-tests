@@ -6,12 +6,12 @@ import {
   type Connection,
   type HostEvents,
   type Refusal,
-} from 'roadmap-module-protocol/client'
+} from 'kehikot-module-protocol/client'
 
 /**
  * The bridge, as one React value.
  *
- * `roadmap-module-protocol/client` is the wire and knows no React; this is the
+ * `kehikot-module-protocol/client` is the wire and knows no React; this is the
  * only file that turns messages into state, and it is deliberately the only
  * one. Two places driving "what can this page see" would eventually disagree,
  * and this module's whole honesty rests on telling `unasked` from `unknown` —
@@ -32,7 +32,7 @@ import {
  * The second is the field-by-field rebuild of the context. What stood in
  * `host.ts` named `epic`, `project`, `theme`, `selection`, `prompt` and
  * `pinned` — and therefore dropped `projectPath` and `kehikko` on every
- * `roadmap.context` this page received, silently, with no error and no warning.
+ * `kehikot.context` this page received, silently, with no error and no warning.
  * The client spreads the message instead, so both now arrive. Nothing here
  * reads either of them yet; what changed is that they reach the code that
  * might, rather than being discarded one line before anything could.
@@ -74,7 +74,7 @@ export type Sight =
   | { at: 'unread'; epic: string }
   | { at: 'read'; epic: string; live: unknown }
 
-export interface Roadmap {
+export interface Kehikot {
   sight: Sight
   /**
    * What the canvas has picked out, as the host last said it.
@@ -83,11 +83,11 @@ export interface Roadmap {
    * `selection:set`, has no control that would set one, and its entire job is to
    * answer a question about what somebody else picked. So this is a fact
    * arriving, in the same family as which epic is open, and the only place it
-   * comes from is `roadmap.context`.
+   * comes from is `kehikot.context`.
    */
   selection: string[]
   /**
-   * `roadmap.context.projectPath`, or null when the host has none (or there is
+   * `kehikot.context.projectPath`, or null when the host has none (or there is
    * no host). The suites and runs live inside that project, so this is the one
    * field that changes WHICH store the page reads rather than what it draws.
    */
@@ -106,7 +106,7 @@ export interface Roadmap {
  */
 export type GotoHandler = NonNullable<HostEvents['onGoto']>
 
-export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
+export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
   const [sight, setSight] = useState<Sight>({ at: 'listening' })
   const [selection, setSelection] = useState<string[]>([])
   const [project, setProject] = useState<string | null>(null)
