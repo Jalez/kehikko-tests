@@ -126,7 +126,7 @@ export const TICKET = crypto.randomUUID()
 
 /** What the page is called when it starts a run, and what an agent is called when it does not say. */
 const OWNER = 'the owner, on this app’s own page'
-const AGENT = process.env.TESTS_AGENT ?? process.env.ROADMAP_AGENT ?? 'an agent'
+const AGENT = process.env.TESTS_AGENT ?? process.env.KEHIKOT_AGENT ?? process.env.ROADMAP_AGENT ?? 'an agent'
 
 /* ------------------------------------------------------------------ *
  * How a run reads, in words
@@ -188,7 +188,7 @@ export function tellRef(project: string, ref: string): string {
 const PROJECT = {
   type: 'string',
   description:
-    'Absolute path of the project folder — the same path a host puts in roadmap.context.projectPath. Suites and runs '
+    'Absolute path of the project folder — the same path a host puts in kehikot.context.projectPath. Suites and runs '
     + 'live inside it, at .kehikot/tests/. Required: this app does not guess which project was meant.',
 } as const
 
@@ -463,7 +463,7 @@ export async function answer(
      one to see a page it can already open. */
   if (method === 'GET' && path === '/api/state') {
     /* One project's, named by `?project=` — the page takes it off
-       `roadmap.context.projectPath`. With none, `nowhere` says so and the page
+       `kehikot.context.projectPath`. With none, `nowhere` says so and the page
        draws that rather than an empty list of suites. */
     const project = projectIn(query.get('project'))
     const named = str(query.get('project'), MAX_PROJECT)

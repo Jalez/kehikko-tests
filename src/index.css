@@ -10,7 +10,7 @@
  * else. That is deliberate and it is the whole reason it is written out rather
  * than left at Tailwind's default: Tailwind's stock `dark:` also fires on
  * `prefers-color-scheme`, and this page's theme is a fact the HOST states in
- * `roadmap.context.theme`. A container told "light" by the canvas, on a machine set
+ * `kehikot.context.theme`. A container told "light" by the canvas, on a machine set
  * to dark, would otherwise draw half its components dark — the tokens obeying
  * the host and every `dark:` utility obeying the OS, in the same container, at the
  * same time.

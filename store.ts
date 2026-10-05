@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 
-import { KEHIKOT_DIR, moduleDir, moduleFile, within } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR, moduleDir, moduleFile, within } from 'kehikot-module-protocol'
 
 import { ID } from './manifest.ts'
 
@@ -20,7 +20,7 @@ import { ID } from './manifest.ts'
  *     <project>/.kehikot/tests/suites.json
  *     <project>/.kehikot/tests/runs.json
  *
- * The folder name and the joins come from `roadmap-module-protocol`
+ * The folder name and the joins come from `kehikot-module-protocol`
  * (`moduleDir`, `moduleFile`), not from this file: four modules answering
  * "where does my data live" separately would be four answers. The path IS the
  * partition — a suite does not say which project it belongs to, because the
@@ -29,7 +29,7 @@ import { ID } from './manifest.ts'
  *
  * ## Where the project comes from, and what happens without one
  *
- * The page is told by the host, in `roadmap.context.projectPath`, and sends it
+ * The page is told by the host, in `kehikot.context.projectPath`, and sends it
  * with every read and write. An agent over MCP names it in a `project`
  * argument. When there is none this answers `nowhere`: reads are empty and say
  * so, writes are refused with `NOWHERE`. It does NOT fall back to
@@ -111,7 +111,7 @@ export const NOWHERE =
   'no project is open, so there is nowhere to keep this. How a project is tested lives in that project, at '
   + '.kehikot/tests/ inside it, and this app will not guess which project was meant — a guess writes somebody’s '
   + 'suites into a folder they will never look in. Open a project on this canvas, or pass `project` as the absolute '
-  + 'path of the project folder — the same path a host puts in `roadmap.context.projectPath`.'
+  + 'path of the project folder — the same path a host puts in `kehikot.context.projectPath`.'
 
 function ours(root: string): string {
   return moduleDir(root, ID) as string

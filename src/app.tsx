@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { kinds, type Kind } from '@/live/kind.ts'
 import { run as startRun, standings, stop as stopRun, type Live } from '@/store/ask.ts'
 import { useRuns } from '@/store/use-runs.ts'
-import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
+import { useKehikot, type GotoHandler } from '@/wire/use-kehikot.ts'
 import { Log } from '@/view/log.tsx'
 import { counted, gloss, RunLine, Verdict } from '@/view/verdict.tsx'
 
@@ -117,9 +117,9 @@ export function App() {
     answer(true, '')
   }, [])
 
-  const { sight, selection, project, resize } = useRoadmap(ID, onGoto)
+  const { sight, selection, project, resize } = useKehikot(ID, onGoto)
 
-  /* After the roadmap, because which store is read depends on which project
+  /* After the host, because which store is read depends on which project
      the host named: suites and runs live inside it, at `.kehikot/tests/`. */
   const { state, live, connected, ended } = useRuns(project)
 
@@ -611,7 +611,7 @@ function SuiteList({
  * whether it can name the kind of a reference. The suites and the runs are this
  * app's own.
  */
-function Sightline({ sight, hasSuites }: { sight: ReturnType<typeof useRoadmap>['sight']; hasSuites: boolean }) {
+function Sightline({ sight, hasSuites }: { sight: ReturnType<typeof useKehikot>['sight']; hasSuites: boolean }) {
   const tail = hasSuites
     ? ' The suites below are this app’s own and run with nothing else here.'
     : ' Nothing is configured yet either, so there is nothing to run.'
