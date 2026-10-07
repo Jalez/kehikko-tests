@@ -43,3 +43,10 @@ test('there is one epic-scoped mode and an MCP door', () => {
   expect(MANIFEST.modes[0]?.scope).toBe('epic')
   expect(MANIFEST.mcp?.url).toBe('/mcp')
 })
+
+test('says it reacts to the selection and to the picked parts of the epic, and asks for nothing to do either', () => {
+  /* `parts` is words rather than narrowing here — a line counting the
+     references outside the picked parts, and a mark on their cards — and
+     `test/stale-state.test.tsx` holds that the page really is different. */
+  expect(MANIFEST.reacts).toEqual(['selection', 'parts'])
+})

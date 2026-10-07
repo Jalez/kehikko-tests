@@ -41,6 +41,34 @@ anywhere in the store, and the verdicts are six words rather than two:
 And a reference with no runs gets a sentence rather than a mark: *nothing has
 been run against this in this project — that is not a pass and not a failure.*
 
+## A parts focus hides nothing here, and the page says so
+
+An epic may be divided into parts, and a person may pick some of them out in
+the host's bar. `context.parts` (protocol 0.29.0) lists every part of the open
+epic with the references the host says belong to it, and flags the picked
+ones; this module says `reacts: ['selection', 'parts']`.
+
+The modules that list an epic's worth of things narrow to the picked parts.
+This one lists nothing per epic — it follows the selection — so it narrows
+nothing, and says where things stand instead (`src/live/focus.ts`):
+
+- **A selected reference outside the picked parts is still drawn.** Its card
+  says `Outside the picked part (The posting seam). It is shown because it is
+  selected.` ahead of the sentence about runs, so "nothing has been run against
+  this" is not read as a gap in the part somebody meant to be looking at.
+- **A line at the top counts them** while any part is picked: `1 of 2
+  references shown here is outside the picked part (The posting seam). Nothing
+  is hidden: this page follows what is selected, not the parts.`
+- **With nothing selected**, the references this project has runs for are
+  counted the same way and none is removed. That list is the project's and has
+  never been narrowed to the open epic, so narrowing it to parts of one would
+  hide every run made under another epic. The suites are not about a reference.
+- **Nothing picked** — an epic with no parts, no epic, a host that has never
+  heard of parts — and the page says nothing about parts at all.
+
+A reference no part lists is outside every focus (`refInFocus`, the protocol's
+rule). The MCP door is not told the focus and answers as it always did.
+
 ## Where the data lives
 
 Per project, at `<project>/.kehikot/tests/suites.json` and `runs.json`, using the
