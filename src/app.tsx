@@ -117,7 +117,7 @@ export function App() {
     answer(true, '')
   }, [])
 
-  const { sight, selection, project, resize } = useKehikot(ID, onGoto)
+  const { sight, selection, project, epic, resize } = useKehikot(ID, onGoto)
 
   /* After the host, because which store is read depends on which project
      the host named: suites and runs live inside it, at `.kehikot/tests/`. */
@@ -132,6 +132,14 @@ export function App() {
   useEffect(() => {
     if (selection.length) setPicked((was) => (was.length ? [] : was))
   }, [selection])
+
+  /* A pick belongs to the epic and project it was made in. The host's selection
+     is emptied by a move, so without this the pick would be what is drawn under
+     the new epic — or, after a project change, would run the new project's
+     suites against a reference that is not in it. */
+  useEffect(() => {
+    setPicked((was) => (was.length ? [] : was))
+  }, [epic, project])
 
   /**
    * The references to draw, memoised on their SPELLING rather than on the arrays.
