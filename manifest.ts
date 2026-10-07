@@ -172,6 +172,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   id: ID,
   name: 'Tests',
   version: VERSION,
+  /* Where a host files this module in its list, most fitting first. */
+  tags: ['tests', 'code'],
   summary: 'How this project is tested, and what was actually run against the change you are looking at.',
   /**
    * What an agent should do about this module being here.
