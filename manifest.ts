@@ -1,7 +1,7 @@
 import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
 
 export const ID = 'kehikot.tests'
-export const VERSION = '1.0.0'
+export const VERSION = '1.1.0'
 
 /**
  * The port this app would rather have, said once and beside the name it goes
@@ -224,8 +224,20 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * `passage` is deliberately not here. A test standing belongs to a ref. Nothing here
    * moves when a reader highlights a sentence, and a word ticked without a
    * reaction behind it is exactly the rot this field would suffer first.
+   *
+   * ## `parts`, which is the smallest reaction that is still one
+   *
+   * A person may pick parts of the open epic out in the host's bar. This page
+   * lists nothing per epic, so it puts nothing aside; what changes is what it
+   * SAYS. While parts are picked, a line at the top counts how many of the
+   * references on the page are outside them, and the card of one that is says
+   * so beside its name. That is a different page afterwards, which is the
+   * field's test — and a person browsing the registry should be able to see
+   * that this pane was told about the focus and answered it with words rather
+   * than by narrowing. `src/live/focus.ts` is the argument. The picking is the
+   * host's own control, so nothing is declared in `uses` for it.
    */
-  reacts: ['selection'],
+  reacts: ['selection', 'parts'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     uses: ['live:read'],

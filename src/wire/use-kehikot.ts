@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import type { EpicPart } from 'kehikot-module-protocol'
 import {
   HostRefused,
   connect,
@@ -7,6 +8,8 @@ import {
   type HostEvents,
   type Refusal,
 } from 'kehikot-module-protocol/client'
+
+import { partsFrom } from '@/live/focus.ts'
 
 /**
  * The bridge, as one React value.
@@ -97,6 +100,17 @@ export interface Kehikot {
    * canvas is, so a view can drop what it holds for the previous epic.
    */
   epic: string | null
+  /**
+   * `context.parts`: every part of the open epic, with the ones a person
+   * picked out in the host's bar flagged. `[]` before any host has spoken and
+   * from a host that has never heard of parts — both mean the whole epic.
+   *
+   * Nothing on this page is hidden by a focus; it says which of the references
+   * it is showing are outside the picked parts. See `live/focus.ts`. The same
+   * array is handed back while the parts say the same thing, because a context
+   * arrives after every click on the canvas.
+   */
+  parts: EpicPart[]
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
 }
@@ -116,6 +130,7 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
   const [selection, setSelection] = useState<string[]>([])
   const [project, setProject] = useState<string | null>(null)
   const [epic, setEpic] = useState<string | null>(null)
+  const [parts, setParts] = useState<EpicPart[]>([])
   const host = useRef<Connection | null>(null)
 
   /**
@@ -242,7 +257,13 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
      * gets it — see the media query in `index.css`.
      */
     const arrived = (
-      context: { epic: string | null; theme: 'light' | 'dark'; selection: string[]; projectPath?: string | null },
+      context: {
+        epic: string | null
+        theme: 'light' | 'dark'
+        selection: string[]
+        projectPath?: string | null
+        parts?: unknown
+      },
       greeting: boolean,
     ) => {
       /* A greeting always re-asks, because a greeting means the conversation is
@@ -284,6 +305,13 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
       const named = typeof context.projectPath === 'string' && context.projectPath.trim() ? context.projectPath : null
       setProject(named)
       setEpic(context.epic)
+      /* The parts of the epic, from every context and before the question of
+         whether anything moved, for the reason the selection is: a move to
+         another epic sends that epic's parts with nothing picked in the same
+         message. Compared before it is written, so a repeated context is not
+         a new array. */
+      const divided = partsFrom(context.parts)
+      setParts((was) => (JSON.stringify(was) === JSON.stringify(divided) ? was : divided))
 
       const moved = context.epic !== standingOn.current || named !== standingIn.current
       standingOn.current = context.epic
@@ -346,5 +374,8 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
 
   const resize = useCallback((height: number) => host.current?.resize(height), [])
 
-  return useMemo(() => ({ sight, selection, project, epic, resize }), [sight, selection, project, epic, resize])
+  return useMemo(
+    () => ({ sight, selection, project, epic, parts, resize }),
+    [sight, selection, project, epic, parts, resize],
+  )
 }

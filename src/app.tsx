@@ -9,6 +9,7 @@ import { ago } from '../runs/ago.ts'
 import type { Standing } from '../runs/store.ts'
 
 import { Button } from '@/components/ui/button.tsx'
+import { focusNamed, focusOf, focusSaid } from '@/live/focus.ts'
 import { kinds, type Kind } from '@/live/kind.ts'
 import { run as startRun, standings, stop as stopRun, type Live } from '@/store/ask.ts'
 import { useRuns } from '@/store/use-runs.ts'
@@ -47,6 +48,16 @@ import { counted, gloss, RunLine, Verdict } from '@/view/verdict.tsx'
  *   gloss, because a hung suite, an abandoned one and a missing binary send a
  *   person to three different places, and calling any of them `failed` would send
  *   them to a fourth that has nothing for them.
+ *
+ * ## A parts focus hides nothing here, and the page says so
+ *
+ * A person may pick parts of the epic out in the host's bar, and the panes
+ * that list an epic's worth of things narrow to them. This one lists nothing
+ * per epic — it follows the selection — so nothing is put aside. While parts
+ * are picked a line at the top says how many of the references on the page are
+ * outside them, and a card for one that is says so beside its name, so that
+ * "nothing has been run against this" is never read as a fact about the part
+ * somebody meant to be looking at. `live/focus.ts` has the argument.
  *
  * ## Everything measures the PANE
  *
@@ -117,7 +128,7 @@ export function App() {
     answer(true, '')
   }, [])
 
-  const { sight, selection, project, epic, resize } = useKehikot(ID, onGoto)
+  const { sight, selection, project, epic, parts, resize } = useKehikot(ID, onGoto)
 
   /* After the host, because which store is read depends on which project
      the host named: suites and runs live inside it, at `.kehikot/tests/`. */
@@ -211,6 +222,22 @@ export function App() {
 
   const liveFor = useCallback((ref: string) => live.filter((l) => l.run.ref === ref), [live])
 
+  /**
+   * What the parts focus says about the references on this page, or null when
+   * no part of the epic is picked out.
+   *
+   * Counted over what is DRAWN: the cards when there are any, and otherwise
+   * the references this project has runs for, which is the list the page
+   * offers with nothing selected. Nothing is filtered by it anywhere below.
+   */
+  const withRuns = useMemo(() => (state?.nowhere ? [] : (state?.refs ?? []).filter(Boolean)), [state])
+  const carded = standing.length > 0
+  const focus = useMemo(
+    () => focusOf(parts, carded ? standing.map((s) => s.ref) : withRuns),
+    [parts, carded, standing, withRuns],
+  )
+  const outside = useMemo(() => new Set(focus?.outside ?? []), [focus])
+
   const suites = state?.suites ?? []
   const busy = live.length
   const slots = state?.slots ?? 0
@@ -282,6 +309,14 @@ export function App() {
         </div>
       ) : null}
 
+      {/* The focus, said once, above whichever of the two states is drawn. Only
+          while a part is picked out; at rest this line does not exist. */}
+      {focus ? (
+        <p className={SAID} data-focus={focus.outside.length}>
+          {focusSaid(focus, carded ? 'shown' : 'with-runs')}
+        </p>
+      ) : null}
+
       {standing.length ? (
         <>
           <p className={SAID}>
@@ -294,6 +329,7 @@ export function App() {
               key={s.ref}
               standing={s}
               kind={kindOf.get(s.ref) ?? null}
+              outside={focus && outside.has(s.ref) ? focusNamed(focus) : null}
               suites={suites.map((x) => x.name)}
               live={liveFor(s.ref)}
               trouble={trouble}
@@ -359,6 +395,7 @@ export function App() {
 export function RefCard({
   standing,
   kind,
+  outside = null,
   suites,
   live,
   trouble,
@@ -370,6 +407,12 @@ export function RefCard({
 }: {
   standing: Standing
   kind: Kind | null
+  /**
+   * The picked parts this reference is outside of, in words, or null when it
+   * is inside them or nothing is picked. The card is drawn either way: the
+   * reference was selected, and a focus does not unselect it.
+   */
+  outside?: string | null
   suites: string[]
   live: Live[]
   trouble: Record<string, string>
@@ -393,6 +436,15 @@ export function RefCard({
         <span className={NAME}>{standing.ref}</span>
         <span className={SAID}>{kind ?? 'reference'}</span>
       </div>
+
+      {outside ? (
+        /* Before the sentence about runs, because it changes how that one is
+           read: "nothing has been run against this" about a reference outside
+           the part somebody is working on is not a gap in that part. */
+        <p className={SAID} data-outside>
+          Outside {outside}. It is shown because it is selected.
+        </p>
+      ) : null}
 
       {!standing.runs.length && !live.length ? (
         /* The sentence the whole module is for. Not a mark, not a colour, and

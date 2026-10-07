@@ -174,3 +174,40 @@ test('every control on the card is a shadcn button', () => {
   expect(buttons.length).toBeGreaterThan(0)
   for (const b of buttons) expect(b.getAttribute('data-slot')).toBe('button')
 })
+
+/**
+ * A selected reference outside the picked parts of the epic.
+ *
+ * The card is drawn all the same — a focus does not unselect anything — and
+ * says where it stands, ahead of the sentence about runs, so that "nothing has
+ * been run" is not read as a gap in the part somebody meant to be looking at.
+ */
+test('a reference outside the picked parts is still drawn, and says it is outside them', () => {
+  const { container } = render(
+    <RefCard
+      standing={standing([])}
+      kind={null}
+      outside="the picked part (The posting seam)"
+      suites={['unit']}
+      live={[]}
+      trouble={{}}
+      onRun={() => {}}
+      onStop={() => {}}
+      confirming={null}
+      onConfirm={() => {}}
+      onCancel={() => {}}
+    />,
+  )
+  expect(container.querySelector('[data-outside]')?.textContent).toBe(
+    'Outside the picked part (The posting seam). It is shown because it is selected.',
+  )
+  /* Everything the card said before, it still says. */
+  expect(screen.getByText(/Nothing has been run against this/)).toBeTruthy()
+  expect(container.querySelector('[data-run="unit"]')).toBeTruthy()
+})
+
+test('a reference inside the focus, or with no focus at all, says nothing about parts', () => {
+  const { container } = draw(standing([]))
+  expect(container.querySelector('[data-outside]')).toBeNull()
+  expect(container.textContent).not.toContain('picked part')
+})
