@@ -92,6 +92,11 @@ export interface Kehikot {
    * field that changes WHICH store the page reads rather than what it draws.
    */
   project: string | null
+  /**
+   * The epic the host says is open, or null for none. A fact about where the
+   * canvas is, so a view can drop what it holds for the previous epic.
+   */
+  epic: string | null
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
 }
@@ -110,6 +115,7 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
   const [sight, setSight] = useState<Sight>({ at: 'listening' })
   const [selection, setSelection] = useState<string[]>([])
   const [project, setProject] = useState<string | null>(null)
+  const [epic, setEpic] = useState<string | null>(null)
   const host = useRef<Connection | null>(null)
 
   /**
@@ -171,6 +177,17 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
    * look like a repeat of a state the page was already in.
    */
   const standingOn = useRef<string | null | undefined>(undefined)
+
+  /**
+   * The project the last context put this page in, kept for the same reason
+   * `standingOn` is: to know whether the context moved anything.
+   *
+   * A different `projectPath` is a move even when the epic is the same word.
+   * Slugs are short and hand-picked, a second project plausibly reuses one, and
+   * "you are already showing this" is only true within one project — believing
+   * it across two would keep the first project's reading under the second's name.
+   */
+  const standingIn = useRef<string | null | undefined>(undefined)
 
   const look = useCallback((epic: string) => {
     const mine = (asking.current += 1)
@@ -242,7 +259,10 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
          deduplicated against the epic the refused question had been about, the
          page would settle on the refusal and stay there — in development only,
          which is the worst place for a bug to live. */
-      if (greeting) standingOn.current = undefined
+      if (greeting) {
+        standingOn.current = undefined
+        standingIn.current = undefined
+      }
 
       const root = document.documentElement
       root.classList.toggle('dark', context.theme === 'dark')
@@ -263,13 +283,20 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
       setSelection(context.selection)
       const named = typeof context.projectPath === 'string' && context.projectPath.trim() ? context.projectPath : null
       setProject(named)
+      setEpic(context.epic)
 
-      const moved = context.epic !== standingOn.current
+      const moved = context.epic !== standingOn.current || named !== standingIn.current
       standingOn.current = context.epic
+      standingIn.current = named
       if (!moved) return
 
       if (context.epic) look(context.epic)
-      else setSight({ at: 'no-epic' })
+      else {
+        /* Moving to no epic is a move like any other: whatever `live.get` is
+           still out was asked about the epic that was just closed. */
+        asking.current += 1
+        setSight({ at: 'no-epic' })
+      }
     }
 
     /**
@@ -319,5 +346,5 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
 
   const resize = useCallback((height: number) => host.current?.resize(height), [])
 
-  return useMemo(() => ({ sight, selection, project, resize }), [sight, selection, project, resize])
+  return useMemo(() => ({ sight, selection, project, epic, resize }), [sight, selection, project, epic, resize])
 }
