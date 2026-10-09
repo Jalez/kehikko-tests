@@ -46,7 +46,7 @@ describe('a write from the page', () => {
   test('from a page older than its server is refused, marked, and said as such', async () => {
     forged = 'a-ticket-from-before-the-restart'
     const out = await run(dir, 'unit', '')
-    expect(out).toEqual({ ok: false, error: 'This page is older than its server — reloading…' })
+    expect(out).toEqual({ ok: false, error: 'This page is older than its server.' })
     expect(serverStanding()).toBe('stale')
   })
 })

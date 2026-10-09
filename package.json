@@ -19,7 +19,7 @@
     "lucide-react": "^1.33.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#v0.36.0",
+    "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#v1.0.0",
     "tailwind-merge": "^3.6.0",
     "zod": "^3.23.8"
   },
