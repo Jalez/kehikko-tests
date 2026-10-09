@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { sameParts, type EpicPart } from 'kehikot-module-protocol'
+import type { EpicPart } from 'kehikot-module-protocol'
 import { HostRefused, type HostEvents, type Refusal } from 'kehikot-module-protocol/client'
 import { useHost, type Host } from 'kehikot-module-protocol/client/react'
 
@@ -105,8 +105,7 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
   /* How many greetings there have been. A greeting always re-asks, whatever the epic: see below. */
   const [greetings, setGreetings] = useState(0)
   const host = useHost(id, { onGoto, onHello: () => setGreetings((n) => n + 1) })
-  const { where, epic, request, resize, selection } = host
-  const project = host.projectPath?.trim() ? host.projectPath : null
+  const { where, epic, projectPath: project, request, resize, selection } = host
 
   /* The host's answer about ONE epic, or null before there is a question out. */
   const [reading, setReading] = useState<Extract<Sight, { epic: string }> | null>(null)
@@ -175,12 +174,9 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
     return reading && reading.epic === epic ? reading : { at: 'asking', epic }
   }, [where, epic, reading])
 
-  /* The parts of the epic, validated (`partsFrom`) and the same array while they say the same
-     thing, because a context arrives after every click on the canvas. */
-  const divided = useMemo(() => partsFrom(host.parts), [host.parts])
-  const held = useRef(divided)
-  if (held.current !== divided && !sameParts(held.current, divided)) held.current = divided
-  const parts = held.current
+  /* The parts of the epic, validated (`partsFrom`). `host.parts` is the same array while the parts
+     say the same thing, so this is too — a context arrives after every click on the canvas. */
+  const parts = useMemo(() => partsFrom(host.parts), [host.parts])
 
   return useMemo(
     () => ({ sight, where, selection, project, epic, parts, resize }),

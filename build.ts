@@ -35,8 +35,8 @@ import { builtPage } from './page/document.ts'
  * not the committed one is the day the built page and the dev page stop being
  * the same page. Nobody would notice, because nobody develops against the built
  * page. So `pageDocument` stays the only place the shell is written, and this
- * file borrows it (`builtPage` in `page/document.ts`: the dev page, with a
- * sentinel where the ticket and the build go).
+ * file borrows it (`builtPage` in `page/document.ts`: the dev page, without a
+ * ticket or a build; `serve.ts` puts its own in per request).
  *
  * The file is written at the REPOSITORY ROOT, because the shell says `src="/src/main.tsx"` and that leading
  * slash is resolved against Vite's `root`. Written into `page/`, the build would
@@ -48,7 +48,7 @@ import { builtPage } from './page/document.ts'
  * looks: `/app` is claimed by the doors middleware before Vite's resolver sees
  * it, but `/` under the dev server is not, and an `index.html` on disk would
  * quietly start being what the dev server hands back at the root — a document
- * with a sentinel where the ticket goes, and every run refused. It is
+ * with no ticket in it, and every run refused. It is
  * gitignored as a second line of defence, so a build interrupted with SIGKILL
  * cannot leave one in a commit.
  */

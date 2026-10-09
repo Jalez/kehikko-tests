@@ -24,9 +24,10 @@ import { active, MAX_LIVE, subscribe } from './spawn.ts'
  * not started, and it would look that way only in the mode nobody develops in.
  *
  * So the policy is here, once, and a `Sink` is the whole of what an adapter has
- * to provide. `vite.config.ts` implements it with `response.write`; `serve.ts`
- * implements it with a `ReadableStreamDefaultController`. Neither of them
- * decides anything.
+ * to provide. `stream()` in `doors.ts` is that adapter for both servers now: it
+ * hands each event to the protocol's `emit`, and the protocol's doors do the
+ * framing and hold the response open (`doors()` under Vite, `doorsFetch` in
+ * `serve.ts`).
  */
 export interface Sink {
   /**
@@ -85,16 +86,4 @@ export function attach(sink: Sink, project: string | null): () => void {
     clearInterval(beat)
     off()
   }
-}
-
-/**
- * One frame, as bytes on the wire.
- *
- * Both adapters need exactly this string and neither should be spelling `\n\n`
- * itself: a missing blank line is a frame the browser holds forever waiting for
- * the rest of it, which presents as a stream that connects and then says
- * nothing — the hardest symptom here to tell from "no runs are happening".
- */
-export function frame(event: string, data: unknown): string {
-  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
 }

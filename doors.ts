@@ -547,8 +547,8 @@ export async function answer(
 /**
  * The one door that stays open: `GET /api/events?project`, server-sent events of one project's
  * runs. `emit(data, name)` is the protocol's — a NAMED event per kind (`hello`, `started`, `line`,
- * `counts`, `ended`, `beat`), exactly as `frame()` in `runs/stream.ts` spells them for `serve.ts`.
- * What is sent and when is `attach`'s, for both servers; this only hands it somewhere to write.
+ * `counts`, `ended`, `beat`). What is sent and when is `attach`'s, for both servers; this only
+ * hands it somewhere to write.
  *
  * Not gated on the ticket, like the reads: what it carries is what `/api/state` already says.
  * `null`: not this door.

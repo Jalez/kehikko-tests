@@ -1,51 +1,48 @@
 import { expect, test } from 'bun:test'
 
-import { pageDocument } from 'kehikot-module-protocol/serve'
+import { fillPage, pageDocument } from 'kehikot-module-protocol/serve'
 
-import { BUILD_SLOT_JSON, PAGE, TICKET_SLOT, TICKET_SLOT_JSON, builtPage, fill } from '../page/document.ts'
+import { PAGE, builtPage } from '../page/document.ts'
 
 /**
  * The built page and the dev page are one document.
  *
  * Dev serves the protocol's `pageDocument` with this process's ticket and build in it. A build
- * compiles the same document with two sentinels, and `serve.ts` swaps them per request (`fill`).
- * If those two ever stop agreeing, the substitution silently does nothing and every run is refused.
+ * compiles the same document with neither, and `serve.ts` puts its own in per request with the
+ * protocol's `fillPage`. If the two ever stop agreeing, every run from the built page is refused.
  */
 
-const BUILD = { version: '1.2.3', commit: 'abcdef1234567', started: '2026-10-09T10:00:00.000Z', protocol: '0.35.0' }
+const BUILD = { version: '1.2.3', commit: 'abcdef1234567', started: '2026-10-09T10:00:00.000Z', protocol: '0.36.0' }
 
-test('the built page carries both sentinels exactly as serve.ts looks for them', () => {
+const island = (id: string) => new RegExp(`<script id="${id}" type="application/json">(.*?)</script>\\n`, 's')
+
+function read(html: string, id = 'ticket'): unknown {
+  const found = island(id).exec(html)
+  if (!found) throw new Error(`the document has no ${id} island`)
+  return JSON.parse(found[1]!)
+}
+
+test('nothing of one process is compiled into the built page', () => {
   const built = builtPage()
-  /* Quotes included: a bare sentinel could in principle appear inside a bundled asset. */
-  expect(built).toContain(TICKET_SLOT_JSON)
-  expect(built).toContain(BUILD_SLOT_JSON)
+  expect(island('ticket').test(built)).toBe(false)
+  expect(island('build').test(built)).toBe(false)
 })
 
-test('substituting the sentinels gives the same document dev would have served', () => {
+test('filled, it is the document dev would have served, carrying the same ticket and build', () => {
   const ticket = '46324096-54d7-4087-9da0-301e991390ff'
-  expect(fill(builtPage(), ticket, BUILD)).toBe(pageDocument({ ...PAGE, ticket, build: BUILD }))
+  const filled = fillPage(builtPage(), { ticket, build: BUILD })
+  const dev = pageDocument({ ...PAGE, ticket, build: BUILD })
+  expect(read(filled)).toBe(ticket)
+  expect(read(filled, 'build')).toEqual(BUILD)
+  const bare = (html: string) => html.replace(island('ticket'), '').replace(island('build'), '')
+  expect(bare(filled)).toBe(bare(dev))
+  expect(bare(filled)).toBe(builtPage())
 })
 
 test('a ticket containing a dollar sign survives both paths', () => {
   /* `String.replace` reads `$&` and `$1` out of a replacement STRING, so a ticket that happened
-     to contain one would be served mangled. `fill` uses a function for that reason. */
+     to contain one would be served mangled. */
   const nasty = 'aa$&bb$1cc$$dd'
-  expect(JSON.parse(read(pageDocument({ ...PAGE, ticket: nasty })))).toBe(nasty)
-  expect(JSON.parse(read(fill(builtPage(), nasty, BUILD)))).toBe(nasty)
+  expect(read(pageDocument({ ...PAGE, ticket: nasty }))).toBe(nasty)
+  expect(read(fillPage(builtPage(), { ticket: nasty, build: BUILD }))).toBe(nasty)
 })
-
-test('nothing in a ticket or a build can close the script element it is printed into', () => {
-  const filled = fill(builtPage(), '</script><script>alert(1)</script>', { ...BUILD, version: '</script>' })
-  expect(filled).not.toContain('</script><script>alert(1)')
-  expect(JSON.parse(read(filled))).toBe('</script><script>alert(1)</script>')
-})
-
-test('the sentinel says what went wrong if it is ever served as-is', () => {
-  expect(TICKET_SLOT).toBe('ticket-not-substituted-by-the-server')
-})
-
-function read(html: string): string {
-  const found = /<script id="ticket" type="application\/json">(.*?)<\/script>/s.exec(html)
-  if (!found) throw new Error('the document has no ticket island')
-  return found[1]!
-}
