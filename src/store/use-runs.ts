@@ -39,14 +39,12 @@ import { state, type Live, type State } from './ask.ts'
  * fact as one that dropped: the page used to draw "not attached" in red on
  * every ordinary first load, for the moment before the stream opened.
  *
- * ## The events are named, and `follow` hears only unnamed ones
+ * ## The events are named
  *
- * This stream sends `event: hello`, `event: line` and so on, and an
- * `EventSource` hands a named event only to a listener for that name; `follow`
- * listens with `onmessage`. So `named()` below is the `EventSource` `follow` is
- * given: the browser's own, with each of this stream's names passed on to
- * `onmessage` as `{ event, data }`. The stream's framing is untouched, which
- * matters because `serve.ts` sends the same one.
+ * This stream sends `event: hello`, `event: line` and so on, and an `EventSource` hands a named
+ * event only to a listener for that name. `follow` is given the names (`events`) and hands each
+ * event over with its name. The stream's framing is untouched, which matters because `serve.ts`
+ * sends the same one.
  *
  * ## What a page reload does to a run: nothing
  *
@@ -75,24 +73,6 @@ export interface Runs {
 
 /** The names this stream's events carry; `beat` is the server's keep-alive and nothing here reads it. */
 const NAMES = ['hello', 'started', 'line', 'counts', 'ended'] as const
-type Said = { event: (typeof NAMES)[number]; data: unknown }
-
-/** The browser's `EventSource`, passing this stream's named events to `onmessage`. See the essay above. */
-function named(): typeof EventSource | undefined {
-  if (typeof EventSource === 'undefined') return undefined
-  return class extends EventSource {
-    constructor(url: string | URL) {
-      super(url)
-      for (const name of NAMES) {
-        this.addEventListener(name, (said) => {
-          /* `data` is the JSON the server wrote, so it is spliced in rather than parsed twice. */
-          this.onmessage?.({ data: `{"event":"${name}","data":${String((said as MessageEvent).data)}}` } as MessageEvent)
-        })
-      }
-    }
-  }
-}
-
 /** How many finished runs are remembered in memory, purely to repaint cards. */
 const KEEP_ENDED = 40
 
@@ -146,7 +126,7 @@ export function useRuns(project: string | null): Runs {
     lines.current = new Map()
     dirty.current = true
     setEnded([])
-    const hear = ({ event, data }: Said) => {
+    const hear = (data: unknown, event?: string) => {
       if (event === 'hello') {
         const said = data as { active?: Live[] } | null
         lines.current = new Map((said?.active ?? []).map((a) => [a.run.id, { run: a.run, lines: a.lines, dropped: a.dropped }]))
@@ -198,17 +178,10 @@ export function useRuns(project: string | null): Runs {
     }
 
     setAttachment('connecting')
-    const unfollow = follow<Said>('/api/events', hear, {
-      query: { project },
-      EventSource: named(),
-      onAttachment: (next) => {
-        setAttachment(next)
-        /* The stream dropping is the first sign this app's server has gone, and nothing else
-           here asks on a timer. So ask: an answer leaves things as they are, and no answer is
-           what puts the "own server is not answering" cover up. */
-        if (next === 'detached') reload()
-      },
-    })
+    /* `probe`: the stream dropping is the first sign this app's server has gone, and nothing else
+       here asks on a timer. So `follow` asks: an answer leaves things as they are, no answer is
+       what puts the "own server is not answering" cover up, and another process's is a stale page. */
+    const unfollow = follow('/api/events', hear, { query: { project }, events: NAMES, probe: true, onAttachment: setAttachment })
 
     return () => {
       clearInterval(flush)

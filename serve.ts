@@ -2,14 +2,11 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join, normalize } from 'node:path'
 
-import { BUILD_HEADER, LEGACY_WELL_KNOWN, TICKET_HEADER, WELL_KNOWN, buildStamp, legacyManifest } from 'kehikot-module-protocol'
-import { claim, frameAncestors, registerAt, sayClaim } from 'kehikot-module-protocol/serve'
+import { WELL_KNOWN } from 'kehikot-module-protocol'
+import { claim, doorsFetch, fillPage, registerAt, sayClaim } from 'kehikot-module-protocol/serve'
 
-import { answer, BUILD, MANIFEST as DECLARED, TICKET } from './doors.ts'
+import { answer, BUILD, MANIFEST, stream, TICKET } from './doors.ts'
 import { ID, PREFERRED_PORT, VERSION } from './manifest.ts'
-import { fill } from './page/document.ts'
-import { attach, frame } from './runs/stream.ts'
-import { projectOf } from './store.ts'
 import { stopAll } from './runs/spawn.ts'
 
 /**
@@ -42,16 +39,14 @@ import { stopAll } from './runs/spawn.ts'
  *
  * ## Why the doors are here rather than imported from the dev server
  *
- * They are not duplicated. `answer()` in `doors.ts` is the whole of the manifest,
- * the health check, the MCP door and this app's `/api`, and it takes a method, a
- * path, a query and a body and returns a status and a document — it was written
- * transport-neutral before this file existed, precisely so that a second adapter
- * would not be a second implementation. `runs/stream.ts` is the same arrangement
- * for the event stream, which was the one door that could not be, because it
- * holds a response open. Between them, this file decides nothing about what this
- * app says. It is an adapter from `Request`/`Response` to those two, and the only
- * things it owns are the ones a dev server owns for itself: the port, the
- * registration, the page off disk, and the headers on it.
+ * They are not duplicated. `answer()` in `doors.ts` is the whole of the health
+ * check, the MCP door and this app's `/api`, and `stream()` beside it is the
+ * event stream; both were written transport-neutral, so that a second adapter
+ * would not be a second implementation. The adapter is the protocol's
+ * `doorsFetch`: the same doors `doors()` gives the dev server, from a `Request`
+ * to a `Response`. So this file decides nothing about what this app says, and
+ * the only things it owns are the ones a dev server owns for itself: the port,
+ * the registration, and the page and its assets off disk.
  *
  * ## No `access-control-allow-origin`, on any door, ever
  *
@@ -69,17 +64,6 @@ import { stopAll } from './runs/spawn.ts'
  * declares `storage: false` and has nothing behind any door to steal. That
  * asymmetry is the whole design and it is not a thing to make uniform.
  */
-
-/*
- * What `doors()` does for the dev server, done by hand here — because `doors()` is a Vite plugin
- * and its `doorsHandler` is a node `(request, response, next)` handler, and this server is
- * `Bun.serve`, which is a function from a `Request` to a `Response`. So the same four things are
- * spelled once more, with the protocol's own names: the build in the manifest and in the health
- * check's answer, its stamp in `x-module-build` on every answer (what the page's `ask()` compares
- * with the build printed into it), and the write ticket read from `x-module-ticket`.
- */
-const MANIFEST = { ...DECLARED, build: BUILD }
-const STAMP = buildStamp(BUILD)
 
 const HERE = import.meta.dirname
 const BUILT = join(HERE, 'dist')
@@ -156,7 +140,8 @@ function asset(pathname: string): Response | null {
 }
 
 /**
- * The page, with this process's ticket in it.
+ * Every door, and the page with this process's ticket and build put into it (`fillPage`: the build
+ * compiled neither).
  *
  * Read from disk on every request rather than once at start. That costs a
  * sub-millisecond read of a 450-byte file and buys the thing worth having: a
@@ -166,120 +151,23 @@ function asset(pathname: string): Response | null {
  * would be a poor showing to reintroduce it in the file that claims to have
  * thought about it.
  */
-function pageDocument(): Response {
-  if (!existsSync(INDEX)) {
-    /* A sentence, not a stack trace. Whoever sees this cloned the repository and
-       started the server before building the page; the one command is worth more
-       than any amount of detail about which file was missing. */
-    return new Response(
-      'Tests has no built page. Run `bun install && bun run build` in this directory, then start it again.\n'
-        + 'To edit this module instead, run ./run.sh, which serves the page from source with hot reload.\n',
-      { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } },
-    )
-  }
+const through = doorsFetch({
+  manifest: MANIFEST,
+  answer,
+  stream,
+  build: BUILD,
+  page: () => fillPage(readFileSync(INDEX, 'utf8'), { ticket: TICKET, build: BUILD }),
+})
 
-  const html = fill(readFileSync(INDEX, 'utf8'), TICKET, BUILD)
-
-  return new Response(html, {
-    headers: {
-      'content-type': 'text/html; charset=utf-8',
-      /* Never cached. The ticket in this document is minted per process, so a
-         cached copy is a page whose every run is refused for a reason nobody
-         would look for. */
-      'cache-control': 'no-store',
-      /* Framed by a host and by nothing else — and by nothing at all is fine
-         too, which is what opening this page directly is. `frame-ancestors` is
-         this module's own half of the arrangement: a host says which origins IT
-         will frame, and this says who may frame this. Deliberately not a list of
-         one: whoever is running this decides, through `KEHIKOT_ORIGINS` (see `frameAncestors()`). */
-      'content-security-policy': frameAncestors(),
-    },
-  })
-}
-
-/**
- * The live stream, as a `ReadableStream`.
- *
- * The policy — what the first frame carries, what is forwarded, how often a
- * comment frame goes out — is in `runs/stream.ts` and shared with the dev
- * server. All that is here is the transport: enqueue bytes, and detach when the
- * browser goes away.
- *
- * `cancel` is what fires when the reader is gone, and the `try` around the
- * enqueue is for the window between the browser closing the connection and this
- * process being told about it — a write in that window throws, and it must not
- * take a running test suite down with it. That is the contract `Sink` states.
- */
-function events(request: Request): Response {
-  let detach: (() => void) | null = null
-  const project = projectOf(new URL(request.url).searchParams.get('project'))
-  const bytes = new TextEncoder()
-
-  const body = new ReadableStream({
-    start(controller) {
-      detach = attach({
-        write(event, data) {
-          try {
-            controller.enqueue(bytes.encode(frame(event, data)))
-          } catch {
-            /* ignore */
-          }
-        },
-      }, project)
-      /* A client that navigates away aborts the request; without this the
-         subscription and its heartbeat would outlive every page that ever
-         connected, which on a long-lived server is a slow leak of listeners
-         each holding a dead controller. */
-      request.signal.addEventListener('abort', () => {
-        detach?.()
-        try {
-          controller.close()
-        } catch {
-          /* ignore */
-        }
-      })
-    },
-    cancel() {
-      detach?.()
-    },
-  })
-
-  return new Response(body, {
-    headers: {
-      'content-type': 'text/event-stream; charset=utf-8',
-      /* No caching of a thing that is by definition not a document, and no
-         buffering anywhere in between. */
-      'cache-control': 'no-store',
-      connection: 'keep-alive',
-      'x-accel-buffering': 'no',
-    },
-  })
-}
-
-/** The request body as JSON, or null. Bounded for the reason `vite.config.ts` gives. */
-const MAX_BODY_BYTES = 1_000_000
-
-async function body(request: Request): Promise<Record<string, unknown> | null> {
-  if (request.method.toUpperCase() !== 'POST') return null
-  const text = await request.text()
-  if (!text || text.length > MAX_BODY_BYTES) return null
-  try {
-    const parsed: unknown = JSON.parse(text)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null
-  } catch {
-    /* Unparseable is null rather than a throw, and `doors.ts` says "that was not
-       a request" about it. A malformed body is an ordinary answer to give. */
-    return null
-  }
-}
-
-const json = (status: number, value: unknown): Response =>
-  value === null
-    ? new Response(null, { status, headers: { [BUILD_HEADER]: STAMP } })
-    : new Response(JSON.stringify(value, null, 2), {
-        status,
-        headers: { 'content-type': 'application/json; charset=utf-8', [BUILD_HEADER]: STAMP },
-      })
+/* A sentence, not a stack trace. Whoever sees this cloned the repository and
+   started the server before building the page; the one command is worth more
+   than any amount of detail about which file was missing. */
+const unbuilt = (): Response =>
+  new Response(
+    'Tests has no built page. Run `bun install && bun run build` in this directory, then start it again.\n'
+      + 'To edit this module instead, run ./run.sh, which serves the page from source with hot reload.\n',
+    { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } },
+  )
 
 const server = Bun.serve({
   /* Loopback only, like the dev server. The port is the one `claim` decided, and
@@ -294,29 +182,7 @@ const server = Bun.serve({
   idleTimeout: 0,
 
   async fetch(request) {
-    const url = new URL(request.url)
-    const path = url.pathname
-    const method = request.method.toUpperCase()
-
-    /* Spelled by the protocol package so that this app and every host cannot
-       disagree about it by a character. `no-store` because a host asks for this
-       to find out whether the program on this port is still the program it
-       thinks it is, and an answer out of a cache would let a module that has
-       been replaced keep describing itself as the old one. */
-    if (path === WELL_KNOWN) {
-      return new Response(JSON.stringify(MANIFEST, null, 2), {
-        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
-      })
-    }
-
-    /* The same manifest in the spelling a host from before the rename asks for. */
-    if (path === LEGACY_WELL_KNOWN) {
-      return new Response(JSON.stringify(legacyManifest(MANIFEST), null, 2), {
-        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
-      })
-    }
-
-    if (path === '/app' || path === '/') return pageDocument()
+    const path = new URL(request.url).pathname
 
     /* `/app/` and `/app` are different base URLs to a browser: the built
        document links its bundle as `./assets/…`, which resolves to `/assets/…`
@@ -325,37 +191,15 @@ const server = Bun.serve({
        shapes of asset path, the trailing slash is redirected away — and it is a
        308 so that the method survives, though nothing POSTs here. */
     if (path === '/app/') return Response.redirect('/app', 308)
+    if ((path === '/app' || path === '/') && !existsSync(INDEX)) return unbuilt()
 
-    if (path === '/api/events') return events(request)
-
-    if (path.startsWith('/assets/')) {
-      const found = asset(path)
-      if (found) return found
-    }
-
-    const ours = path === '/healthz' || path === '/mcp' || path.startsWith('/api/')
-    if (ours) {
-      const reply = await answer(
-        method,
-        path,
-        url.searchParams,
-        await body(request),
-        request.headers.get(TICKET_HEADER),
-      )
-      /* `answer` returns null for "not one of mine". Under Vite that is handed
-         on to the rest of the middleware stack; here there is nothing behind
-         this, so it is a 404 like anything else. */
-      if (reply) {
-        /* The health check says which build is answering, as `doors()` makes it say in dev. */
-        const healthy = path === '/healthz' && reply.body && typeof reply.body === 'object'
-        return json(reply.status, healthy ? { ...(reply.body as object), build: BUILD } : reply.body)
-      }
-    }
-
-    return new Response('Not found\n', {
-      status: 404,
-      headers: { 'content-type': 'text/plain; charset=utf-8' },
-    })
+    /* Every door, then a file out of the build. Under Vite "not one of mine" is handed on to the
+       rest of the middleware stack; here there is nothing behind this, so it is a 404. */
+    return (
+      (await through(request))
+      ?? (path.startsWith('/assets/') ? asset(path) : null)
+      ?? new Response('Not found\n', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } })
+    )
   },
 })
 

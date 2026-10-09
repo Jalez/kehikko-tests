@@ -251,10 +251,7 @@ export function App() {
    * the project the host names, so with nothing framing it, or no project open, there is nothing
    * of its own to draw. A read the server refused is not a cover: its sentence is drawn instead.
    */
-  const cover: CoverState | null =
-    server === 'stale'
-      ? 'stale'
-      : (coverFor({ where, projectPath: project }) ?? (server === 'down' ? 'down' : !state && !refused ? 'loading' : null))
+  const cover: CoverState | null = coverFor({ where, projectPath: project, server }) ?? (!state && !refused ? 'loading' : null)
 
   const suites = state?.suites ?? []
   const busy = live.length

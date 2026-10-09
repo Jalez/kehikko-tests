@@ -19,8 +19,8 @@ dist
 # removes again. It is here because the removal is in a `finally` and a `finally`
 # does not run on SIGKILL: without this line, a build somebody killed halfway
 # leaves a root `index.html` staged for the next commit — and, worse, sitting
-# where the DEV server will start handing it back at `/`, a document with a
-# sentinel where the ticket goes and every run refused.
+# where the DEV server will start handing it back at `/`, a document with no
+# ticket in it and every run refused.
 /index.html
 
 # The OLD store, from before suites and runs lived inside each project at

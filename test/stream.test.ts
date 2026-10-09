@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 
-import { attach, frame } from '../runs/stream.ts'
+import { attach } from '../runs/stream.ts'
 
 /**
  * The event stream's policy, which is now one file because two servers serve it.
@@ -43,16 +43,6 @@ test('detaching twice is not an error', () => {
      connection that had already gone — which is the least visible place in this
      program for an exception to land. */
   expect(() => detach()).not.toThrow()
-})
-
-test('a frame ends with the blank line that terminates it', () => {
-  const text = frame('line', { id: 'r1', stream: 'out', text: 'ok' })
-
-  /* Missing this is a frame the browser holds forever waiting for the rest of
-     it, which presents as a stream that connects and then says nothing — the
-     symptom here hardest to tell apart from "no runs are happening". */
-  expect(text.endsWith('\n\n')).toBe(true)
-  expect(text.startsWith('event: line\ndata: {')).toBe(true)
 })
 
 test('a sink that throws is the adapter’s problem, not the run’s', () => {

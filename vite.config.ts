@@ -1,4 +1,3 @@
-import type { IncomingMessage } from 'node:http'
 import { resolve } from 'node:path'
 
 import tailwindcss from '@tailwindcss/vite'
@@ -12,10 +11,8 @@ import { PAGE } from './page/document.ts'
 import { stopAll } from './runs/spawn.ts'
 
 /**
- * The two things this server does that the protocol's `doors()` does not, kept in a plugin of
- * their own beside it.
- *
- * ## Nothing this app started outlives it
+ * The one thing this server does that the protocol's `doors()` does not, kept in a plugin of its
+ * own beside it: nothing this app started outlives it.
  *
  * `spawn` gives each run a process group of its own so that a test runner's children can be
  * killed with it — and the flip side of that is that Ctrl-C on this server would otherwise leave
@@ -25,19 +22,12 @@ import { stopAll } from './runs/spawn.ts'
  * (Runs a previous life of this process left saying "running" are swept per project as each
  * project is read, not here: the runs live inside the projects, and at startup this server knows
  * of none. See `sweep` in `runs/store.ts`.)
- *
- * ## The event stream's socket does not wait for company
- *
- * Nagle would hold a short line back waiting for more, which on a stream whose whole point is
- * immediacy turns "live" into "live, in bursts". `doors()` opens the stream and writes its
- * frames; this runs first, sets the one socket option on that request, and passes it on unread.
- * It is listed BEFORE `doors()` for that reason.
  */
 function runs(): Plugin {
   return {
     name: 'tests-runs',
     apply: 'serve',
-    configureServer(server) {
+    configureServer() {
       for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         process.once(signal, () => {
           stopAll()
@@ -45,11 +35,6 @@ function runs(): Plugin {
         })
       }
       process.once('exit', stopAll)
-
-      server.middlewares.use((request: IncomingMessage, _response, next) => {
-        if ((request.url ?? '').split('?')[0] === '/api/events') request.socket.setNoDelay(true)
-        next()
-      })
     },
   }
 }
@@ -61,7 +46,7 @@ function runs(): Plugin {
  *   the registration true, so there is no `server.port` here. This module already answering
  *   there ends the start cleanly rather than making a second copy — which here would be a second
  *   process spawning test runs against the same `runs/` store.
- * - `runs()`: this module's own two lines of server; see above.
+ * - `runs()`: this module's own lines of server; see above.
  * - `doors()` is every door this app answers on, served by the one process that serves the page:
  *   the manifest, `/app` with the write ticket and the build printed into it, the event stream
  *   (`/api/events`) through `stream`, and `/healthz`, `/mcp` and `/api/*` through `answer` in
