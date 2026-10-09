@@ -1,3 +1,5 @@
+import { answered, ask } from 'kehikot-module-protocol/client'
+
 import type { Run, Standing } from '../../runs/store.ts'
 import type { Suite } from '../../suites/store.ts'
 
@@ -25,39 +27,15 @@ import type { Suite } from '../../suites/store.ts'
  * silently disagrees the first time a field is added. The wire between this page
  * and this server is not a wire between two programs — it is one program with a
  * socket in the middle.
- */
-
-/**
- * The ticket, read once off the inert JSON island the document carries.
  *
- * Read at module load rather than per request, because it cannot change while
- * this document is open: it is minted per server process and printed into the
- * page. A missing island is an empty string rather than a throw — that is a page
- * served by something other than this app's own server, which is a real state
- * during a build, and the runs will be refused with a sentence rather than the
- * page failing to render at all.
+ * ## The asking is the protocol's
+ *
+ * `ask()` carries the page's ticket on every write and turns every failure into one sentence:
+ * the server said no (its own words), nothing answered, or this page is older than its server —
+ * in which case the page reloads itself a moment later. It also keeps the one fact
+ * `useServerStanding` reads, which is what draws the "own server is not answering" cover in
+ * `App`. See the protocol's docs/module-plumbing.md.
  */
-function readTicket(): string {
-  const island = typeof document === 'undefined' ? null : document.getElementById('ticket')
-  if (!island?.textContent) return ''
-  try {
-    const parsed: unknown = JSON.parse(island.textContent)
-    return typeof parsed === 'string' ? parsed : ''
-  } catch {
-    return ''
-  }
-}
-
-const TICKET = readTicket()
-
-async function post(path: string, body: unknown): Promise<unknown> {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-tests-ticket': TICKET },
-    body: JSON.stringify(body),
-  })
-  return response.json()
-}
 
 export interface Live {
   run: Run
@@ -78,11 +56,10 @@ export interface State {
 
 /** Everything this app holds that does not depend on which references are picked. */
 /** `project=…`, or nothing: the store lives inside the project the host named. */
-const scoped = (project: string | null) => (project === null ? '' : `project=${encodeURIComponent(project)}`)
 
 export async function state(project: string | null): Promise<State> {
-  const response = await fetch(`/api/state?${scoped(project)}`)
-  const body = (await response.json()) as Partial<State>
+  /* Thrown as `AskFailed` when it could not be read; its `kind` says whether nothing answered. */
+  const body = answered(await ask<Partial<State>>('/api/state', { query: { project } })) ?? {}
   return {
     nowhere: body.nowhere === true,
     suites: Array.isArray(body.suites) ? body.suites : [],
@@ -106,8 +83,7 @@ export async function state(project: string | null): Promise<State> {
  */
 export async function standings(project: string | null, refs: string[]): Promise<Standing[]> {
   if (!refs.length) return []
-  const response = await fetch(`/api/standings?refs=${encodeURIComponent(refs.join(','))}&${scoped(project)}`)
-  const body = (await response.json()) as { standings?: unknown }
+  const body = answered(await ask<{ standings?: unknown }>('/api/standings', { query: { refs: refs.join(','), project } })) ?? {}
   return Array.isArray(body.standings) ? (body.standings as Standing[]) : []
 }
 
@@ -126,14 +102,14 @@ export type Started = { ok: true; run: Run } | { ok: false; error: string }
  * are busy — and each one names what to do instead.
  */
 export async function run(project: string | null, suite: string, ref: string): Promise<Started> {
-  const body = (await post('/api/run', { project, suite, ref })) as { ok?: unknown; run?: unknown; error?: unknown }
-  if (body.ok === true && body.run) return { ok: true, run: body.run as Run }
-  return { ok: false, error: typeof body.error === 'string' ? body.error : 'it did not start, and said nothing about why' }
+  const asked = await ask<{ run?: unknown }>('/api/run', { body: { project, suite, ref } })
+  if (!asked.ok) return { ok: false, error: asked.error }
+  if (asked.body?.run) return { ok: true, run: asked.body.run as Run }
+  return { ok: false, error: 'it did not start, and said nothing about why' }
 }
 
 /** Stop a run that is going. It ends as `stopped`, which is deliberately not `failed`. */
 export async function stop(id: string): Promise<{ ok: boolean; error?: string }> {
-  const body = (await post('/api/stop', { id })) as { ok?: unknown; error?: unknown }
-  if (body.ok === true) return { ok: true }
-  return { ok: false, error: typeof body.error === 'string' ? body.error : 'it did not stop, and said nothing about why' }
+  const asked = await ask('/api/stop', { body: { id } })
+  return asked.ok ? { ok: true } : { ok: false, error: asked.error }
 }

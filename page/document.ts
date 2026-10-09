@@ -1,68 +1,21 @@
-/**
- * The document, assembled per request.
- *
- * ## Why this is a string and not an `index.html`
- *
- * A module that holds nothing ships a static `index.html` and lets Vite serve
- * it. This one cannot, for one reason: the ticket. It is minted once per process
- * and has to reach the page WITHOUT being fetchable on a door of its own — a
- * `GET /api/ticket` would be a route that hands the write credential to anything
- * that asks, which is the ticket abolished with extra steps. So the document is
- * generated, the ticket goes into it, and `vite.config.ts` runs the result
- * through `transformIndexHtml` so that Vite's own client and module graph are
- * injected exactly as they would be for a file on disk.
- *
- * ## Nothing is drawn here
- *
- * There is a root element and one inert JSON island. Every suite, every line of
- * output and every verdict is built by React from what this program's own store
- * and event stream say — because all of it changes while the page is open, and
- * because a run's output arriving over SSE has nowhere to land in a static
- * document.
- *
- * ## The ticket rides in a JSON island
- *
- * `type="application/json"` rather than a generated JavaScript literal, because
- * a JSON island is inert: the browser neither parses nor executes it, and the
- * page reads it with `JSON.parse` off `textContent`. A value written into
- * executable source is the one place `textContent` cannot help.
- *
- * ## The one script, and why its type matters
- *
- * `<script type="module">`, which is what Vite serves and what a browser needs
- * in order to `import`. It is also the exact thing an opaque origin cannot fetch
- * without a permissive CORS header — see the essay on `server.cors` in
- * `vite.config.ts`. If this page ever loads in a frame and does nothing at all,
- * that header, or the `storage: true` that makes it unnecessary, is the first
- * thing to check, and the browser console is the only place it is visible.
- */
-const PAGE_SHELL = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tests</title>
-</head>
-<body>
-<div id="root"></div>
-<script id="ticket" type="application/json">__TICKET__</script>
-<script type="module" src="/src/main.tsx"></script>
-</body>
-</html>
-`
+import type { Build } from 'kehikot-module-protocol'
+import { pageDocument } from 'kehikot-module-protocol/serve'
 
 /**
- * The page, with the substitution made.
+ * The page document, for both servers — and it is the protocol's `pageDocument` now.
  *
- * The replacement is given as a FUNCTION. `String.replace` reads `$&`, `$1` and
- * friends out of a replacement string, and a ticket is random text that will
- * eventually contain a dollar sign — at which point the page would be served
- * with a mangled ticket and every run would be refused, intermittently, for a
- * reason nobody would find. A function replacement is taken literally.
+ * In dev, `doors()` in `vite.config.ts` builds it per request from `PAGE` with this process's
+ * ticket and build in it, and runs it through Vite's `transformIndexHtml`. What used to be written
+ * out here (the shell, the ticket island, the function replacement that keeps a `$&` in a ticket
+ * from being mangled) is `kehikot-module-protocol/serve`; see its docs/module-plumbing.md.
+ *
+ * What is left here is the half the protocol does not have: a BUILT page. `build.ts` compiles a
+ * document once and `serve.ts` serves it for the life of many processes, and neither the ticket
+ * nor the build identity can be compiled in — both are per process.
  */
-export function page(ticket: string): string {
-  return PAGE_SHELL.replace('__TICKET__', () => JSON.stringify(ticket))
-}
+
+/** What both servers pass to `pageDocument`, apart from the ticket and the build. */
+export const PAGE = { title: 'Tests' } as const
 
 /**
  * The ticket a BUILT page is compiled with, and which `serve.ts` swaps out on
@@ -73,22 +26,44 @@ export function page(ticket: string): string {
  * would be a write credential sitting in a build artefact, valid only for
  * whichever process happened to run the build and refused by every process
  * afterwards. So the build compiles this sentinel and the server replaces it per
- * request — which also keeps the promise `/app` has always made, that the ticket
- * in the document belongs to the process that served it.
+ * request, which is the same per-process substitution the dev server does.
  *
- * The replacement is done on the QUOTED form. `page()` runs its argument through
- * `JSON.stringify`, so what lands in `dist/index.html` is this string with its
- * quotes, and matching the quotes is what makes the swap unambiguous — a bare
- * sentinel could in principle turn up inside a bundled asset's contents, and a
- * replacement that hit one would corrupt a script rather than a ticket.
- *
- * The value is deliberately a sentence rather than a plausible-looking UUID. If
- * the substitution ever fails, this is what the page's ticket becomes and every
- * write is refused — and then the thing visible in the browser is a string that
- * says what happened, rather than a random-looking id indistinguishable from a
- * real one that has simply gone stale.
+ * It is a sentence rather than a plausible UUID on purpose: when the
+ * substitution fails, this is what lands in the page, and a reader looking at a
+ * refused write should be able to see the cause in the document.
  */
 export const TICKET_SLOT = 'ticket-not-substituted-by-the-server'
 
-/** The exact text, quotes included, that `serve.ts` looks for in the built document. */
-export const TICKET_SLOT_JSON = JSON.stringify(TICKET_SLOT)
+/**
+ * The same, for the build identity printed beside the ticket. A page served with this still in it
+ * reads as a page with no build (the version is not one any server has), which costs only the
+ * early notice that its server restarted; the ticket's refusal still says so.
+ */
+export const BUILD_SLOT: Build = {
+  version: 'build-not-substituted-by-the-server',
+  commit: null,
+  started: '1970-01-01T00:00:00.000Z',
+  protocol: '0.0.0',
+}
+
+/** JSON as `pageDocument` prints it into an island: nothing in it can close the script element. */
+const island = (value: unknown) => JSON.stringify(value).replace(/</g, '\\u003c')
+
+/** The quoted, printed forms `serve.ts` looks for. Quotes included, so a bundled asset that happened to contain the bare words is never touched. */
+export const TICKET_SLOT_JSON = island(TICKET_SLOT)
+export const BUILD_SLOT_JSON = island(BUILD_SLOT)
+
+/** The document `build.ts` hands Vite as its entry: the dev page, with the two sentinels in it. */
+export function builtPage(): string {
+  return pageDocument({ ...PAGE, ticket: TICKET_SLOT, build: BUILD_SLOT })
+}
+
+/**
+ * A built document with this process's ticket and build put where the sentinels are.
+ *
+ * The replacements are given as FUNCTIONS. `String.replace` reads `$&`, `$1` and friends out of a
+ * replacement string, and a ticket is random text — a function replacement is taken literally.
+ */
+export function fill(html: string, ticket: string, build: Build): string {
+  return html.replace(TICKET_SLOT_JSON, () => island(ticket)).replace(BUILD_SLOT_JSON, () => island(build))
+}

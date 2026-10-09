@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { AskFailed, follow, type Attachment } from 'kehikot-module-protocol/client'
+
 import type { Run } from '../../runs/store.ts'
 import { state, type Live, type State } from './ask.ts'
 
@@ -17,9 +19,12 @@ import { state, type Live, type State } from './ask.ts'
  * protection would have to be rebuilt by hand out of an `Origin` check and a
  * ticket.
  *
- * ## Reconnection is the browser's job, and the page has to say when it happens
+ * ## Reconnection, and the page saying when it happens
  *
- * `EventSource` reconnects on its own after a drop, and each reconnection begins
+ * The protocol's `follow` holds the `EventSource`: the browser reconnects it after a drop,
+ * `follow` reconnects it when the browser has given up for good (which is what a server that is
+ * still starting looks like), and it says which of three things is true — `connecting`,
+ * `attached`, `detached`. Each reconnection begins
  * with a fresh `hello` carrying every live run and everything it has said so far.
  * So a page that was disconnected for four seconds catches up rather than
  * missing the middle of a run. What it cannot catch up on is output older than
@@ -27,9 +32,21 @@ import { state, type Live, type State } from './ask.ts'
  * says how much that is — the page prints it rather than presenting a partial log
  * as a whole one.
  *
- * `connected` is exposed for the same reason every other absence in this
+ * `attachment` is exposed for the same reason every other absence in this
  * codebase is: a page whose stream is down and which drew a still, silent run
- * would be claiming to be live while it was not. It says which.
+ * would be claiming to be live while it was not. It says which — and it says
+ * `connecting` for a stream that has not opened YET, which is not the same
+ * fact as one that dropped: the page used to draw "not attached" in red on
+ * every ordinary first load, for the moment before the stream opened.
+ *
+ * ## The events are named, and `follow` hears only unnamed ones
+ *
+ * This stream sends `event: hello`, `event: line` and so on, and an
+ * `EventSource` hands a named event only to a listener for that name; `follow`
+ * listens with `onmessage`. So `named()` below is the `EventSource` `follow` is
+ * given: the browser's own, with each of this stream's names passed on to
+ * `onmessage` as `{ event, data }`. The stream's framing is untouched, which
+ * matters because `serve.ts` sends the same one.
  *
  * ## What a page reload does to a run: nothing
  *
@@ -42,16 +59,38 @@ import { state, type Live, type State } from './ask.ts'
  */
 
 export interface Runs {
-  /** Everything not keyed to a selection: the suites, the slots, the trouble. */
+  /** Everything not keyed to a selection: the suites, the slots, the trouble. Null until it has been read. */
   state: State | null
+  /** The server's own sentence when it REFUSED that read, or null. Not set when nothing answered: that is the cover's. */
+  refused: string | null
   /** Runs alive right now, with everything they have said. */
   live: Live[]
-  /** Whether the stream is attached. A page with this false is not live and says so. */
-  connected: boolean
+  /** Whether the stream is attached: `connecting` until it first opens, `detached` whenever it is not. A page that is detached is not live and says so. */
+  attachment: Attachment
   /** Runs that have ENDED since this page loaded, so a card can repaint without refetching. */
   ended: Run[]
   /** Re-read the parts that do not stream. */
   reload: () => void
+}
+
+/** The names this stream's events carry; `beat` is the server's keep-alive and nothing here reads it. */
+const NAMES = ['hello', 'started', 'line', 'counts', 'ended'] as const
+type Said = { event: (typeof NAMES)[number]; data: unknown }
+
+/** The browser's `EventSource`, passing this stream's named events to `onmessage`. See the essay above. */
+function named(): typeof EventSource | undefined {
+  if (typeof EventSource === 'undefined') return undefined
+  return class extends EventSource {
+    constructor(url: string | URL) {
+      super(url)
+      for (const name of NAMES) {
+        this.addEventListener(name, (said) => {
+          /* `data` is the JSON the server wrote, so it is spliced in rather than parsed twice. */
+          this.onmessage?.({ data: `{"event":"${name}","data":${String((said as MessageEvent).data)}}` } as MessageEvent)
+        })
+      }
+    }
+  }
 }
 
 /** How many finished runs are remembered in memory, purely to repaint cards. */
@@ -59,14 +98,25 @@ const KEEP_ENDED = 40
 
 export function useRuns(project: string | null): Runs {
   const [held, setHeld] = useState<State | null>(null)
+  const [refused, setRefused] = useState<string | null>(null)
   const [live, setLive] = useState<Live[]>([])
-  const [connected, setConnected] = useState(false)
+  const [attachment, setAttachment] = useState<Attachment>('connecting')
   const [ended, setEnded] = useState<Run[]>([])
 
   const reload = useCallback(() => {
     void state(project)
-      .then(setHeld)
-      .catch(() => setHeld(null))
+      .then((read) => {
+        setHeld(read)
+        setRefused(null)
+      })
+      .catch((caught: unknown) => {
+        /* Nothing answered, or this page is older than its server: `ask` has said so to
+           `useServerStanding`, which draws the cover, and what was read stays underneath it.
+           A read the server REFUSED is a different fact: nothing is held, and its sentence is. */
+        if (caught instanceof AskFailed && caught.kind !== 'refused') return
+        setHeld(null)
+        setRefused(caught instanceof Error ? caught.message : String(caught))
+      })
   }, [project])
 
   useEffect(reload, [reload])
@@ -96,78 +146,75 @@ export function useRuns(project: string | null): Runs {
     lines.current = new Map()
     dirty.current = true
     setEnded([])
-    const source = new EventSource(project === null ? '/api/events' : `/api/events?project=${encodeURIComponent(project)}`)
-
-    source.addEventListener('open', () => setConnected(true))
-    source.addEventListener('error', () => {
-      /* Not fatal and not reported as such: `EventSource` retries by itself, and
-         this fires on every ordinary reconnection too. What the page needs to
-         know is only whether it is attached RIGHT NOW. */
-      setConnected(false)
-    })
-
-    const read = (e: MessageEvent): unknown => {
-      try {
-        return JSON.parse(e.data as string) as unknown
-      } catch {
-        return null
+    const hear = ({ event, data }: Said) => {
+      if (event === 'hello') {
+        const said = data as { active?: Live[] } | null
+        lines.current = new Map((said?.active ?? []).map((a) => [a.run.id, { run: a.run, lines: a.lines, dropped: a.dropped }]))
+        dirty.current = true
+        /* The suites and the known references may have changed while this page was
+           disconnected — an agent can configure a suite over MCP at any moment —
+           so a fresh greeting re-reads them. It is also the first thing a server that
+           has come back says, and that read is what notices it is a new process. */
+        reload()
+        return
+      }
+      if (event === 'started') {
+        const said = data as { run?: Run } | null
+        if (!said?.run) return
+        lines.current.set(said.run.id, { run: said.run, lines: [], dropped: 0 })
+        dirty.current = true
+        return
+      }
+      if (event === 'line') {
+        const said = data as { id?: string; text?: string } | null
+        if (!said?.id) return
+        const held = lines.current.get(said.id)
+        if (!held) return
+        held.lines = [...held.lines.slice(-400), said.text ?? '']
+        dirty.current = true
+        return
+      }
+      if (event === 'counts') {
+        const said = data as { id?: string; passed?: number | null; failed?: number | null } | null
+        if (!said?.id) return
+        const held = lines.current.get(said.id)
+        if (!held) return
+        held.run = { ...held.run, passed: said.passed ?? null, failed: said.failed ?? null }
+        dirty.current = true
+        return
+      }
+      if (event === 'ended') {
+        const said = data as { run?: Run } | null
+        if (!said?.run) return
+        lines.current.delete(said.run.id)
+        dirty.current = true
+        const done = said.run
+        setEnded((was) => [done, ...was.filter((r) => r.id !== done.id)].slice(0, KEEP_ENDED))
+        /* A finished run changes what `/api/state` says about the known references,
+           and it is the moment a reader most wants the rest of the page to agree
+           with what they just watched. */
+        reload()
       }
     }
 
-    source.addEventListener('hello', (e) => {
-      const data = read(e as MessageEvent) as { active?: Live[] } | null
-      lines.current = new Map((data?.active ?? []).map((a) => [a.run.id, { run: a.run, lines: a.lines, dropped: a.dropped }]))
-      dirty.current = true
-      setConnected(true)
-      /* The suites and the known references may have changed while this page was
-         disconnected — an agent can configure a suite over MCP at any moment —
-         so a fresh greeting re-reads them. */
-      reload()
-    })
-
-    source.addEventListener('started', (e) => {
-      const data = read(e as MessageEvent) as { run?: Run } | null
-      if (!data?.run) return
-      lines.current.set(data.run.id, { run: data.run, lines: [], dropped: 0 })
-      dirty.current = true
-    })
-
-    source.addEventListener('line', (e) => {
-      const data = read(e as MessageEvent) as { id?: string; text?: string } | null
-      if (!data?.id) return
-      const held = lines.current.get(data.id)
-      if (!held) return
-      held.lines = [...held.lines.slice(-400), data.text ?? '']
-      dirty.current = true
-    })
-
-    source.addEventListener('counts', (e) => {
-      const data = read(e as MessageEvent) as { id?: string; passed?: number | null; failed?: number | null } | null
-      if (!data?.id) return
-      const held = lines.current.get(data.id)
-      if (!held) return
-      held.run = { ...held.run, passed: data.passed ?? null, failed: data.failed ?? null }
-      dirty.current = true
-    })
-
-    source.addEventListener('ended', (e) => {
-      const data = read(e as MessageEvent) as { run?: Run } | null
-      if (!data?.run) return
-      lines.current.delete(data.run.id)
-      dirty.current = true
-      const done = data.run
-      setEnded((was) => [done, ...was.filter((r) => r.id !== done.id)].slice(0, KEEP_ENDED))
-      /* A finished run changes what `/api/state` says about the known references,
-         and it is the moment a reader most wants the rest of the page to agree
-         with what they just watched. */
-      reload()
+    setAttachment('connecting')
+    const unfollow = follow<Said>('/api/events', hear, {
+      query: { project },
+      EventSource: named(),
+      onAttachment: (next) => {
+        setAttachment(next)
+        /* The stream dropping is the first sign this app's server has gone, and nothing else
+           here asks on a timer. So ask: an answer leaves things as they are, and no answer is
+           what puts the "own server is not answering" cover up. */
+        if (next === 'detached') reload()
+      },
     })
 
     return () => {
       clearInterval(flush)
-      source.close()
+      unfollow()
     }
   }, [reload])
 
-  return { state: held, live, connected, ended, reload }
+  return { state: held, refused, live, attachment, ended, reload }
 }
