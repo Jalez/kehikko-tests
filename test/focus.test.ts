@@ -23,9 +23,7 @@ describe('nothing picked out', () => {
 
 describe('which references are outside the picked parts', () => {
   test('a reference a picked part lists is inside; the rest are named, in order', () => {
-    expect(focusOf([seam(true), tests(false)], ['gh#7', 'gh#10', 'gh#99'])).toEqual({
-      picked: ['The seam'],
-      of: 2,
+    expect(focusOf([seam(true), tests(false)], ['gh#7', 'gh#10', 'gh#99'])).toMatchObject({
       among: 3,
       outside: ['gh#7', 'gh#99'],
     })
@@ -33,12 +31,12 @@ describe('which references are outside the picked parts', () => {
 
   test('several picked parts are a union, and a reference in no part is outside every focus', () => {
     const focus = focusOf([seam(true), tests(true)], ['gh#7', 'gh#10', 'gh#99'])!
-    expect(focus.picked).toEqual(['The seam', 'The tests'])
+    expect(focusNamed(focus)).toBe('the 2 picked parts (The seam, The tests)')
     expect(focus.outside).toEqual(['gh#99'])
   })
 
   test('a part with no heading is named by its id', () => {
-    expect(focusOf([part('seam', [], true, '')], [])?.picked).toEqual(['seam'])
+    expect(focusNamed(focusOf([part('seam', [], true, '')], [])!)).toBe('the picked part (seam)')
   })
 })
 
