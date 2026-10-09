@@ -74,7 +74,7 @@ export function focusNamed(focus: Focus): string {
 export function focusSaid(focus: Focus, what: 'shown' | 'with-runs'): string {
   if (focus.among === 0) return `This epic is focused on ${focusNamed(focus)}. Nothing on this page is narrowed by that.`
   const noun = what === 'shown' ? (['reference shown here', 'references shown here'] as const) : (['reference with runs', 'references with runs'] as const)
-  return `${focusSentence(focus.parts, focus.outside.length, noun)} Nothing is hidden: this page follows what is selected, not the parts.`
+  return `${focusSentence(focus.parts, focus.outside.length, noun, { total: focus.among })} Nothing is hidden: this page follows what is selected, not the parts.`
 }
 
 /**

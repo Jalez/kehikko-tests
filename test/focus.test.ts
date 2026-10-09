@@ -50,16 +50,16 @@ describe('the words', () => {
 
   test('how many of the references shown are outside, and that none is hidden', () => {
     expect(focusSaid(one, 'shown')).toBe(
-      '2 references shown here outside the picked part (The seam). Nothing is hidden: this page follows what is selected, not the parts.',
+      '2 of 3 references shown here are outside the picked part (The seam). Nothing is hidden: this page follows what is selected, not the parts.',
     )
     expect(focusSaid(focusOf([seam(true)], ['gh#7'])!, 'shown')).toBe(
-      '1 reference shown here outside the picked part (The seam). Nothing is hidden: this page follows what is selected, not the parts.',
+      '1 of 1 reference shown here is outside the picked part (The seam). Nothing is hidden: this page follows what is selected, not the parts.',
     )
-    expect(focusSaid(focusOf([seam(true)], ['gh#10'])!, 'shown')).toContain('0 references shown here outside')
+    expect(focusSaid(focusOf([seam(true)], ['gh#10'])!, 'shown')).toContain('0 of 1 reference shown here are outside')
   })
 
   test('with nothing selected the count is of the references the project has runs for', () => {
-    expect(focusSaid(one, 'with-runs')).toContain('2 references with runs outside the picked part (The seam).')
+    expect(focusSaid(one, 'with-runs')).toContain('2 of 3 references with runs are outside the picked part (The seam).')
   })
 
   test('with no reference on the page at all, it still says the epic is focused', () => {

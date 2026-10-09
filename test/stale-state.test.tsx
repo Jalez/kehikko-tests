@@ -147,7 +147,7 @@ describe('the parts of the epic', () => {
     expect(cards()).toEqual(['gh#7', 'gh#10'])
     expect(marked()).toEqual(['gh#7'])
     expect(line()).toBe(
-      '1 reference shown here outside the picked part (The posting seam). Nothing is hidden: this page follows what is selected, not the parts.',
+      '1 of 2 references shown here is outside the picked part (The posting seam). Nothing is hidden: this page follows what is selected, not the parts.',
     )
 
     await act(async () =>
@@ -168,7 +168,7 @@ describe('the parts of the epic', () => {
     await act(async () => events.onHello!(focused([], [seam(true)]), null))
     /* `gh#7` has runs in this project and is in no picked part. */
     expect(line()).toBe(
-      '1 reference with runs outside the picked part (The posting seam). Nothing is hidden: this page follows what is selected, not the parts.',
+      '1 of 1 reference with runs is outside the picked part (The posting seam). Nothing is hidden: this page follows what is selected, not the parts.',
     )
     expect(document.querySelector('[data-pick="gh#7"]')).toBeTruthy()
   })
