@@ -1,4 +1,4 @@
-import { isFocused, partsSchema, pickedParts, refInFocus, type EpicPart } from 'kehikot-module-protocol'
+import { anchorInFocus, focusSentence, isFocused, partsSchema, pickedParts, type EpicPart } from 'kehikot-module-protocol'
 
 /**
  * The parts focus, and the little this page does about it.
@@ -33,19 +33,17 @@ import { isFocused, partsSchema, pickedParts, refInFocus, type EpicPart } from '
  * every run made under another epic for a reason nobody on this page chose.
  * The suites are not about a reference at all.
  *
- * What is left is counting, by the protocol's own `refInFocus` so three
- * modules do not decide it three ways: how many of the references on the page
- * are outside the picked parts, and which — which, because here they are
- * marked rather than dropped. A reference
- * no part lists is outside every focus.
+ * What is left is counting, and saying it: a reference's anchor is `{ ref }`,
+ * the protocol's `anchorInFocus` decides which are outside — which, because
+ * here they are marked rather than dropped — and its `focusSentence` is the
+ * sentence every module says about them. A reference no part lists is outside
+ * every focus.
  *
  * Pure, like `kind.ts` beside it.
  */
 export interface Focus {
-  /** What a person calls each picked part — its heading, or its id where it has none — in the epic's order. */
-  picked: string[]
-  /** How many parts the epic has, picked or not. */
-  of: number
+  /** Every part of the epic, the picked ones flagged: what the sentence is made from. */
+  parts: readonly EpicPart[]
   /** How many references the count was taken over. */
   among: number
   /** Those of them no picked part lists, in the order given. Drawn, and marked. */
@@ -55,18 +53,13 @@ export interface Focus {
 /** What the focus says about these references, or null when no part is picked out — the cue to say nothing. */
 export function focusOf(parts: readonly EpicPart[], refs: readonly string[]): Focus | null {
   if (!isFocused(parts)) return null
-  return {
-    picked: pickedParts(parts).map((part) => part.heading || part.id),
-    of: parts.length,
-    among: refs.length,
-    outside: refs.filter((ref) => !refInFocus(parts, ref)),
-  }
+  return { parts, among: refs.length, outside: refs.filter((ref) => !anchorInFocus(parts, { ref })) }
 }
 
 /** "the picked part (The posting seam)", or "the 2 picked parts (The method, The results)". */
 export function focusNamed(focus: Focus): string {
-  const one = focus.picked.length === 1
-  return `${one ? 'the picked part' : `the ${focus.picked.length} picked parts`} (${focus.picked.join(', ')})`
+  const picked = pickedParts(focus.parts).map((part) => part.heading || part.id)
+  return `${picked.length === 1 ? 'the picked part' : `the ${picked.length} picked parts`} (${picked.join(', ')})`
 }
 
 /**
@@ -79,11 +72,9 @@ export function focusNamed(focus: Focus): string {
  * not has to say that it did not.
  */
 export function focusSaid(focus: Focus, what: 'shown' | 'with-runs'): string {
-  const named = focusNamed(focus)
-  if (focus.among === 0) return `This epic is focused on ${named}. Nothing on this page is narrowed by that.`
-  const noun = what === 'shown' ? (focus.among === 1 ? 'reference shown here' : 'references shown here') : focus.among === 1 ? 'reference with runs' : 'references with runs'
-  const verb = focus.outside.length === 1 ? 'is' : 'are'
-  return `${focus.outside.length} of ${focus.among} ${noun} ${verb} outside ${named}. Nothing is hidden: this page follows what is selected, not the parts.`
+  if (focus.among === 0) return `This epic is focused on ${focusNamed(focus)}. Nothing on this page is narrowed by that.`
+  const noun = what === 'shown' ? (['reference shown here', 'references shown here'] as const) : (['reference with runs', 'references with runs'] as const)
+  return `${focusSentence(focus.parts, focus.outside.length, noun)} Nothing is hidden: this page follows what is selected, not the parts.`
 }
 
 /**

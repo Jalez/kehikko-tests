@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { FOCUS_WHERE } from 'kehikot-module-protocol'
+
 import { ID } from '../manifest.ts'
 /* `ago` comes from its own file and `Standing` is a TYPE. That split is
    load-bearing: `runs/store.ts` imports `node:fs`, so a value imported from it
@@ -312,7 +314,7 @@ export function App() {
       {/* The focus, said once, above whichever of the two states is drawn. Only
           while a part is picked out; at rest this line does not exist. */}
       {focus ? (
-        <p className={SAID} data-focus={focus.outside.length}>
+        <p className={SAID} data-focus={focus.outside.length} title={FOCUS_WHERE}>
           {focusSaid(focus, carded ? 'shown' : 'with-runs')}
         </p>
       ) : null}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { EpicPart } from 'kehikot-module-protocol'
+import { sameParts, type EpicPart } from 'kehikot-module-protocol'
 import {
   HostRefused,
   connect,
@@ -311,7 +311,7 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
          message. Compared before it is written, so a repeated context is not
          a new array. */
       const divided = partsFrom(context.parts)
-      setParts((was) => (JSON.stringify(was) === JSON.stringify(divided) ? was : divided))
+      setParts((was) => (sameParts(was, divided) ? was : divided))
 
       const moved = context.epic !== standingOn.current || named !== standingIn.current
       standingOn.current = context.epic
