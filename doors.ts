@@ -1,11 +1,15 @@
+import { establishBuild, mintTicket, refuseTicket, type Reply } from 'kehikot-module-protocol/serve'
+
 import { ID, MANIFEST, VERSION } from './manifest.ts'
 import { NOWHERE, projectOf } from './store.ts'
 import { BOUNDS, configure, forget, spell, suites, trouble as suiteTrouble } from './suites/store.ts'
 import { active, begin, end, isLive, MAX_LIVE, runningSuite, waitFor } from './runs/spawn.ts'
 import { ago, knownRefs, run as findRun, standingFor, sweep, type Run } from './runs/store.ts'
+import { attach } from './runs/stream.ts'
 
 /**
- * Every door this app answers on that is not the page and not the event stream.
+ * Every door this app answers on that is not the page: `answer` for the ones that reply with a
+ * document, and `stream` at the bottom for the one that stays open.
  *
  * ## Why this is a file of functions rather than a server
  *
@@ -122,7 +126,14 @@ function str(value: unknown, max: number): string {
  * that outlives the thing that issued it is one nobody can revoke by restarting.
  * What it separates, and what it does not, is the essay above.
  */
-export const TICKET = crypto.randomUUID()
+export const TICKET = mintTicket()
+
+/**
+ * What this process is built from: this module's version, the checkout's commit, and when the
+ * process started. Both servers say it in the manifest, at `/healthz`, in the page and on every
+ * answer, which is how a page notices that the server answering it is not the one that served it.
+ */
+export const BUILD = establishBuild({ version: VERSION, dir: import.meta.dirname })
 
 /** What the page is called when it starts a run, and what an agent is called when it does not say. */
 const OWNER = 'the owner, on this app’s own page'
@@ -289,12 +300,8 @@ function suitesText(project: string): string {
   return head + busy
 }
 
-/** A status and a document. Nothing here writes bytes; the adapter does that. */
-export interface Reply {
-  status: number
-  /** `null` means "answer with no body", which is what a notification gets. */
-  body: unknown
-}
+/* A status and a document — the protocol's `Reply`. Nothing here writes bytes; the adapter does that. */
+export type { Reply }
 
 const ok = (body: unknown): Reply => ({ status: 200, body })
 const bad = (why: string, status = 400): Reply => ({ status, body: { ok: false, error: why } })
@@ -506,7 +513,11 @@ export async function answer(
        says what it separates and what it does not; the short version is that it
        stops another page, not another program, and the thing that stops another
        program doing damage is that a request cannot name a command. */
-    if (ticket !== TICKET) return bad('that press did not come from this app’s own page', 403)
+    /* `refuseTicket` marks the refusal, so a page that is merely older than this process — the
+       server restarted under it — is told so by its own `ask()` and reloads, instead of every
+       press being called a stranger's. */
+    const refused = refuseTicket(ticket, TICKET, 'that press did not come from this app’s own page')
+    if (refused) return refused
     if (!body) return bad('that was not a request')
 
     if (path === '/api/run') {
@@ -531,6 +542,26 @@ export async function answer(
      serve as a source file. Anything else is not ours at all. */
   if (path.startsWith('/api/')) return bad('not here', 404)
   return null
+}
+
+/**
+ * The one door that stays open: `GET /api/events?project`, server-sent events of one project's
+ * runs. `emit(data, name)` is the protocol's — a NAMED event per kind (`hello`, `started`, `line`,
+ * `counts`, `ended`, `beat`), exactly as `frame()` in `runs/stream.ts` spells them for `serve.ts`.
+ * What is sent and when is `attach`'s, for both servers; this only hands it somewhere to write.
+ *
+ * Not gated on the ticket, like the reads: what it carries is what `/api/state` already says.
+ * `null`: not this door.
+ */
+export function stream(
+  method: string,
+  path: string,
+  query: URLSearchParams,
+  emit: (event: unknown, name?: string) => void,
+): { close: () => void } | null {
+  if (method !== 'GET' || path !== '/api/events') return null
+  /* The stream is one project's: a page standing in one project is never shown another's runs. */
+  return { close: attach({ write: (event, data) => emit(data, event) }, projectOf(query.get('project'))) }
 }
 
 export { MANIFEST }

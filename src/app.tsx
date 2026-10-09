@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { FOCUS_WHERE } from 'kehikot-module-protocol'
+import { Cover, coverFor, useServerStanding, type CoverState } from 'kehikot-module-protocol/client/react'
 
 import { ID } from '../manifest.ts'
 /* `ago` comes from its own file and `Standing` is a TYPE. That split is
@@ -130,11 +131,15 @@ export function App() {
     answer(true, '')
   }, [])
 
-  const { sight, selection, project, epic, parts, resize } = useKehikot(ID, onGoto)
+  const { sight, where, selection, project, epic, parts, resize } = useKehikot(ID, onGoto)
 
   /* After the host, because which store is read depends on which project
      the host named: suites and runs live inside it, at `.kehikot/tests/`. */
-  const { state, live, connected, ended } = useRuns(project)
+  const { state, refused, live, attachment, ended, reload } = useRuns(project)
+  /* How this page's own server last answered: `down` when nothing did, `stale` when it has restarted under this page. */
+  const server = useServerStanding()
+  /* The stream, said only when it is TRUE that it dropped — not while it is opening for the first time. */
+  const detached = attachment === 'detached'
 
   /* The host's selection wins the moment there is one — and the guard is not
      tidiness. `selection` is a fresh array on every context, and the host sends a
@@ -240,6 +245,17 @@ export function App() {
   )
   const outside = useMemo(() => new Set(focus?.outside ?? []), [focus])
 
+  /*
+   * Every not-ready moment is the protocol's one cover, in the order that makes each true: a page
+   * that has not been greeted is `waiting`, never "no project". This page reads its store from
+   * the project the host names, so with nothing framing it, or no project open, there is nothing
+   * of its own to draw. A read the server refused is not a cover: its sentence is drawn instead.
+   */
+  const cover: CoverState | null =
+    server === 'stale'
+      ? 'stale'
+      : (coverFor({ where, projectPath: project }) ?? (server === 'down' ? 'down' : !state && !refused ? 'loading' : null))
+
   const suites = state?.suites ?? []
   const busy = live.length
   const slots = state?.slots ?? 0
@@ -270,18 +286,26 @@ export function App() {
         </header>
       )}
 
-      {state?.trouble ? <p className={TROUBLE}>{state.trouble}</p> : null}
-      {/*
-        No project: said in words, not drawn as "nothing configured". Suites and
-        runs live inside the project the host names, and with none there is no
-        store to read — which is a different fact from an empty one.
-      */}
-      {state?.nowhere ? (
-        <p className={SAID}>
-          No project is open, so there are no suites to show and nowhere to record a run. How a project is tested lives
-          inside it, at .kehikot/tests/ — open a project on this canvas.
-        </p>
+      {cover ? (
+        <Cover
+          state={cover}
+          name="Tests"
+          onRetry={reload}
+          /* No project: said in words, not drawn as "nothing configured". Suites and runs live inside
+             the project the host names, and with none there is no store to read — which is a
+             different fact from an empty one. */
+          detail={
+            cover === 'no-project' || cover === 'unhosted'
+              ? 'How a project is tested lives inside it, at .kehikot/tests/, so there are no suites to show and nowhere to record a run.'
+              : null
+          }
+        />
       ) : null}
+
+      {/* Kept mounted under a cover, so a pick, or a stop somebody was halfway through confirming, is still there when the server is. */}
+      <div hidden={cover !== null} className="flex min-w-0 flex-col gap-2">
+      {state?.trouble ? <p className={TROUBLE}>{state.trouble}</p> : null}
+      {refused ? <p className={TROUBLE}>{refused}</p> : null}
 
       {/*
         Whether the page is actually live, said rather than implied, and what
@@ -289,13 +313,14 @@ export function App() {
 
         A page whose stream has dropped and which went on drawing a still,
         pulsing "running" would be claiming to be watching something it is not.
-        `EventSource` reconnects on its own, so this is usually a flicker; when
+        The stream reconnects on its own, so this is usually a flicker; when
         it is not, the reader needs to know that what they are looking at has
-        stopped moving.
+        stopped moving. It is said only once the stream has actually dropped:
+        a stream still opening for the first time is not one that stopped.
       */}
-      {busy || !connected ? (
+      {busy || detached ? (
         <div className={`flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 ${SAID}`}>
-          {connected ? (
+          {!detached ? (
             <>
               <Verdict verdict="running" />
               <span>
@@ -304,7 +329,7 @@ export function App() {
               </span>
             </>
           ) : (
-            <span className="text-failed">
+            <span className="text-failed" data-stream="detached">
               The live stream is not attached, so what is on screen may have stopped moving. It reconnects by itself.
             </span>
           )}
@@ -381,6 +406,7 @@ export function App() {
           />
         </>
       )}
+      </div>
     </div>
   )
 }
@@ -677,12 +703,10 @@ function Sightline({ sight, hasSuites }: { sight: ReturnType<typeof useKehikot>[
   const tail = hasSuites
     ? ' The suites below are this app’s own and run with nothing else here.'
     : ' Nothing is configured yet either, so there is nothing to run.'
+  /* Not greeted yet, and nothing framing the page, are the shared cover's; see `cover` in `App`. */
+  if (sight.at === 'listening' || sight.at === 'unhosted') return null
   const said =
-    sight.at === 'listening'
-      ? 'Waiting to hear whether anything is framing this page.'
-      : sight.at === 'unhosted'
-        ? `Nothing is framing this page, so nothing has said which reference to show runs for.${tail}`
-        : sight.at === 'no-epic'
+        sight.at === 'no-epic'
           ? `A host is here and no epic is open, so there is nothing selected to show runs against.${tail}`
           : sight.at === 'asking'
             ? `Asking the host what it last read about ${sight.epic}, to learn what kind of thing each reference is.`

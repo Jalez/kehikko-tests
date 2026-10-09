@@ -2,12 +2,12 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join, normalize } from 'node:path'
 
-import { LEGACY_WELL_KNOWN, WELL_KNOWN, legacyManifest } from 'kehikot-module-protocol'
+import { BUILD_HEADER, LEGACY_WELL_KNOWN, TICKET_HEADER, WELL_KNOWN, buildStamp, legacyManifest } from 'kehikot-module-protocol'
 import { claim, frameAncestors, registerAt, sayClaim } from 'kehikot-module-protocol/serve'
 
-import { answer, MANIFEST, TICKET } from './doors.ts'
+import { answer, BUILD, MANIFEST as DECLARED, TICKET } from './doors.ts'
 import { ID, PREFERRED_PORT, VERSION } from './manifest.ts'
-import { TICKET_SLOT_JSON } from './page/document.ts'
+import { fill } from './page/document.ts'
 import { attach, frame } from './runs/stream.ts'
 import { projectOf } from './store.ts'
 import { stopAll } from './runs/spawn.ts'
@@ -69,6 +69,17 @@ import { stopAll } from './runs/spawn.ts'
  * declares `storage: false` and has nothing behind any door to steal. That
  * asymmetry is the whole design and it is not a thing to make uniform.
  */
+
+/*
+ * What `doors()` does for the dev server, done by hand here — because `doors()` is a Vite plugin
+ * and its `doorsHandler` is a node `(request, response, next)` handler, and this server is
+ * `Bun.serve`, which is a function from a `Request` to a `Response`. So the same four things are
+ * spelled once more, with the protocol's own names: the build in the manifest and in the health
+ * check's answer, its stamp in `x-module-build` on every answer (what the page's `ask()` compares
+ * with the build printed into it), and the write ticket read from `x-module-ticket`.
+ */
+const MANIFEST = { ...DECLARED, build: BUILD }
+const STAMP = buildStamp(BUILD)
 
 const HERE = import.meta.dirname
 const BUILT = join(HERE, 'dist')
@@ -167,7 +178,7 @@ function pageDocument(): Response {
     )
   }
 
-  const html = readFileSync(INDEX, 'utf8').replace(TICKET_SLOT_JSON, () => JSON.stringify(TICKET))
+  const html = fill(readFileSync(INDEX, 'utf8'), TICKET, BUILD)
 
   return new Response(html, {
     headers: {
@@ -264,10 +275,10 @@ async function body(request: Request): Promise<Record<string, unknown> | null> {
 
 const json = (status: number, value: unknown): Response =>
   value === null
-    ? new Response(null, { status })
+    ? new Response(null, { status, headers: { [BUILD_HEADER]: STAMP } })
     : new Response(JSON.stringify(value, null, 2), {
         status,
-        headers: { 'content-type': 'application/json; charset=utf-8' },
+        headers: { 'content-type': 'application/json; charset=utf-8', [BUILD_HEADER]: STAMP },
       })
 
 const server = Bun.serve({
@@ -329,12 +340,16 @@ const server = Bun.serve({
         path,
         url.searchParams,
         await body(request),
-        request.headers.get('x-tests-ticket'),
+        request.headers.get(TICKET_HEADER),
       )
       /* `answer` returns null for "not one of mine". Under Vite that is handed
          on to the rest of the middleware stack; here there is nothing behind
          this, so it is a 404 like anything else. */
-      if (reply) return json(reply.status, reply.body)
+      if (reply) {
+        /* The health check says which build is answering, as `doors()` makes it say in dev. */
+        const healthy = path === '/healthz' && reply.body && typeof reply.body === 'object'
+        return json(reply.status, healthy ? { ...(reply.body as object), build: BUILD } : reply.body)
+      }
     }
 
     return new Response('Not found\n', {
