@@ -225,19 +225,24 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * moves when a reader highlights a sentence, and a word ticked without a
    * reaction behind it is exactly the rot this field would suffer first.
    *
-   * ## `parts`, which is the smallest reaction that is still one
+   * ## Not `parts`, and `partless` below says why
    *
    * A person may pick parts of the open epic out in the host's bar. This page
-   * lists nothing per epic, so it puts nothing aside; what changes is what it
-   * SAYS. While parts are picked, a line at the top counts how many of the
-   * references on the page are outside them, and the card of one that is says
-   * so beside its name. That is a different page afterwards, which is the
-   * field's test — and a person browsing the registry should be able to see
-   * that this pane was told about the focus and answered it with words rather
-   * than by narrowing. `src/live/focus.ts` is the argument. The picking is the
-   * host's own control, so nothing is declared in `uses` for it.
+   * lists nothing per epic: it draws the references somebody SELECTED, and
+   * with nothing selected the references this project has runs for, which is
+   * the project's list and has never been narrowed to the open epic. Hiding a
+   * selected reference because a part elsewhere was picked would be the page
+   * disagreeing with the person's own click.
+   *
+   * It used to say `parts` here for a reaction in words — a line at the top
+   * counting the references outside the picked parts, and a sentence on the
+   * card of each one. Both were taken out: they cost rows to report on
+   * something this page does not act on, and the host's bar already shows the
+   * pick. With them gone a pick changes nothing on this page, so claiming to
+   * react to it would be a tick with no reaction behind it.
    */
-  reacts: ['selection', 'parts'],
+  reacts: ['selection'],
+  partless: 'Shows the references a person selected and the project’s own runs; narrowing would hide their own selection.',
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     uses: ['live:read'],

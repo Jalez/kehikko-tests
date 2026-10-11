@@ -80,69 +80,38 @@ describe('useKehikot', () => {
 })
 
 /**
- * `context.parts`, from the host's message to the hook's value and on to the
- * page. The hook names the fields of a context one by one, so a new field
- * arrives nowhere until a line there carries it.
+ * The parts of an epic picked out in the host's bar, which this page does
+ * nothing about and says nothing about (`partless` in the manifest). It used
+ * to count the references outside them in a line at the top and mark their
+ * cards; what is held now is that a pick changes nothing on the page at all.
  */
 describe('the parts of the epic', () => {
-  test('reach the hook from the greeting, follow a later context, and keep their identity when repeated', async () => {
-    const { result } = renderHook(() => useKehikot('tests', () => {}))
-    await greet(focused([], [seam(false)]))
-    expect(result.current.parts).toEqual([seam(false)])
-
-    await say(focused([], [seam(true)]))
-    expect(result.current.parts).toEqual([seam(true)])
-    const held = result.current.parts
-    await say(focused(['gh#7'], [seam(true)]))
-    expect(result.current.parts).toBe(held)
-
-    /* A host that stops sending the field, or never did: no parts, no focus. */
-    await say(focused(['gh#7']))
-    expect(result.current.parts).toEqual([])
-  })
-
-  const line = () => document.querySelector('[data-focus]')?.textContent ?? null
   const cards = () => [...document.querySelectorAll('[data-ref]')].map((card) => card.getAttribute('data-ref'))
-  const marked = () =>
-    [...document.querySelectorAll('[data-ref]')]
-      .filter((card) => card.querySelector('[data-outside]'))
-      .map((card) => card.getAttribute('data-ref'))
+  const about = () =>
+    document.querySelector('[data-focus]') !== null ||
+    document.querySelector('[data-outside]') !== null ||
+    /picked part|outside the|host’s bar|Nothing is hidden/i.test(document.body.textContent ?? '')
 
-  test('with nothing picked the page says nothing about parts', async () => {
+  test('a pick draws no line and marks no card, and the selected references are all still there', async () => {
     render(<App />)
     await greet(focused(['gh#7', 'gh#10'], [seam(false)]))
+    const before = document.body.innerHTML
     expect(cards()).toEqual(['gh#7', 'gh#10'])
-    expect(line()).toBeNull()
-    expect(marked()).toEqual([])
-  })
 
-  test('a selected reference outside the focus is still drawn, marked, and counted; a change of focus re-draws', async () => {
-    render(<App />)
-    await greet(focused(['gh#7', 'gh#10'], [seam(true)]))
-    /* Both cards: a focus hides nothing here. */
+    /* `gh#7` is in no picked part. Its card is drawn as it was, with nothing said about that. */
+    await say(focused(['gh#7', 'gh#10'], [seam(true)]))
     expect(cards()).toEqual(['gh#7', 'gh#10'])
-    expect(marked()).toEqual(['gh#7'])
-    expect(line()).toBe(
-      '1 of 2 references shown here is outside the picked part (The posting seam). Nothing is hidden: this page follows what is selected, not the parts.',
-    )
+    expect(about()).toBe(false)
+    expect(document.body.innerHTML).toBe(before)
 
     await say(focused(['gh#7', 'gh#10'], [seam(false), part('tests', 'What the tests check', ['gh#7'], true)]))
-    expect(cards()).toEqual(['gh#7', 'gh#10'])
-    expect(marked()).toEqual(['gh#10'])
-    expect(line()).toContain('(What the tests check)')
-
-    await say(focused(['gh#7', 'gh#10'], [seam(false)]))
-    expect(line()).toBeNull()
-    expect(marked()).toEqual([])
+    expect(document.body.innerHTML).toBe(before)
   })
 
-  test('with nothing selected, the references the project has runs for are counted and none is removed', async () => {
+  test('with nothing selected, the references the project has runs for are all offered whatever is picked', async () => {
     render(<App />)
     await greet(focused([], [seam(true)]))
-    /* `gh#7` has runs in this project and is in no picked part. */
-    expect(line()).toBe(
-      '1 of 1 reference with runs is outside the picked part (The posting seam). Nothing is hidden: this page follows what is selected, not the parts.',
-    )
+    expect(about()).toBe(false)
     expect(document.querySelector('[data-pick="gh#7"]')).toBeTruthy()
   })
 })

@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { EpicPart } from 'kehikot-module-protocol'
 import { HostRefused, type HostEvents, type Refusal } from 'kehikot-module-protocol/client'
 import { useHost, type Host } from 'kehikot-module-protocol/client/react'
 
-import { partsFrom } from '@/live/focus.ts'
 
 /**
  * The bridge, as one React value: the protocol's `useHost`, and this module's reading of the host
@@ -76,17 +74,6 @@ export interface Kehikot {
    * canvas is, so a view can drop what it holds for the previous epic.
    */
   epic: string | null
-  /**
-   * `context.parts`: every part of the open epic, with the ones a person
-   * picked out in the host's bar flagged. `[]` before any host has spoken and
-   * from a host that has never heard of parts — both mean the whole epic.
-   *
-   * Nothing on this page is hidden by a focus; it says which of the references
-   * it is showing are outside the picked parts. See `live/focus.ts`. The same
-   * array is handed back while the parts say the same thing, because a context
-   * arrives after every click on the canvas.
-   */
-  parts: readonly EpicPart[]
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
 }
@@ -174,12 +161,8 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
     return reading && reading.epic === epic ? reading : { at: 'asking', epic }
   }, [where, epic, reading])
 
-  /* The parts of the epic, validated (`partsFrom`). `host.parts` is the same array while the parts
-     say the same thing, so this is too — a context arrives after every click on the canvas. */
-  const parts = useMemo(() => partsFrom(host.parts), [host.parts])
-
   return useMemo(
-    () => ({ sight, where, selection, project, epic, parts, resize }),
-    [sight, where, selection, project, epic, parts, resize],
+    () => ({ sight, where, selection, project, epic, resize }),
+    [sight, where, selection, project, epic, resize],
   )
 }

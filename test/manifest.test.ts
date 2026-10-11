@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { PROTOCOL, manifestSchema } from 'kehikot-module-protocol'
+import { PROTOCOL, manifestSchema, partsDeclaration } from 'kehikot-module-protocol'
 
 import { ID, MANIFEST, VERSION } from '../manifest.ts'
 
@@ -44,9 +44,12 @@ test('there is one epic-scoped mode and an MCP door', () => {
   expect(MANIFEST.mcp?.url).toBe('/mcp')
 })
 
-test('says it reacts to the selection and to the picked parts of the epic, and asks for nothing to do either', () => {
-  /* `parts` is words rather than narrowing here — a line counting the
-     references outside the picked parts, and a mark on their cards — and
-     `test/stale-state.test.tsx` holds that the page really is different. */
-  expect(MANIFEST.reacts).toEqual(['selection', 'parts'])
+test('says it reacts to the selection, and says why it does not follow the picked parts of the epic', () => {
+  /* The page draws what somebody selected and the project's own runs. It used
+     to answer a pick in words — a line counting the references outside the
+     picked parts, a mark on their cards — and those are gone, so it does
+     nothing with parts and says so rather than claiming a reaction it has not. */
+  expect(MANIFEST.reacts).toEqual(['selection'])
+  expect(MANIFEST.partless).toBe('Shows the references a person selected and the project’s own runs; narrowing would hide their own selection.')
+  expect(partsDeclaration(MANIFEST)).toEqual([])
 })
