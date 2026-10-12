@@ -12,7 +12,8 @@ import type { Standing } from '../runs/store.ts'
 
 import { Button } from '@/components/ui/button.tsx'
 import { kinds, type Kind } from '@/live/kind.ts'
-import { run as startRun, standings, stop as stopRun, type Live } from '@/store/ask.ts'
+import type { Listed } from '../suites/store.ts'
+import { confirm as confirmSuite, run as startRun, standings, stop as stopRun, type Live } from '@/store/ask.ts'
 import { useRuns } from '@/store/use-runs.ts'
 import { useKehikot, type GotoHandler } from '@/wire/use-kehikot.ts'
 import { Log } from '@/view/log.tsx'
@@ -225,6 +226,14 @@ export function App() {
     setTrouble((was) => ({ ...was, [`${ref}|${suite}`]: answer.ok ? '' : answer.error }))
   }, [project])
 
+  /* A person's yes to one command, from its row. The page then reads again: the row's control
+     becomes Run when the server kept it, and says why when it did not. */
+  const confirmCommand = useCallback(async (suite: Listed, ref: string) => {
+    const answer = await confirmSuite(project, suite.name, suite.fingerprint)
+    setTrouble((was) => ({ ...was, [`${ref}|${suite.name}`]: answer.ok ? '' : (answer.error ?? 'it was not confirmed') }))
+    reload()
+  }, [project, reload])
+
   const liveFor = useCallback((ref: string) => live.filter((l) => l.run.ref === ref), [live])
 
   /*
@@ -327,10 +336,11 @@ export function App() {
               key={s.ref}
               standing={s}
               kind={kindOf.get(s.ref) ?? null}
-              suites={suites.map((x) => x.name)}
+              suites={suites}
               live={liveFor(s.ref)}
               trouble={trouble}
               onRun={(suite) => void press(suite, s.ref)}
+              onConfirmCommand={(suite) => void confirmCommand(suite, s.ref)}
               onStop={(id) => setConfirming(id)}
               confirming={confirming}
               onConfirm={(id) => {
@@ -371,6 +381,7 @@ export function App() {
           <SuiteList
             state={state}
             onRun={(suite) => void press(suite, '')}
+            onConfirmCommand={(suite) => void confirmCommand(suite, '')}
             trouble={trouble}
             onPick={(ref) => setPicked([ref])}
           />
@@ -397,6 +408,7 @@ export function RefCard({
   live,
   trouble,
   onRun,
+  onConfirmCommand,
   onStop,
   confirming,
   onConfirm,
@@ -404,10 +416,12 @@ export function RefCard({
 }: {
   standing: Standing
   kind: Kind | null
-  suites: string[]
+  /** The configured suites, each with whether a person has confirmed its command here. */
+  suites: Listed[]
   live: Live[]
   trouble: Record<string, string>
   onRun: (suite: string) => void
+  onConfirmCommand: (suite: Listed) => void
   onStop: (id: string) => void
   confirming: string | null
   onConfirm: (id: string) => void
@@ -418,8 +432,9 @@ export function RefCard({
   /* Suites that have runs here but are no longer configured. Kept, because "the
      unit suite failed against this on Tuesday" is a fact about Tuesday and does
      not stop being one when somebody deletes the suite. */
-  const gone = standing.bySuite.filter((r) => !suites.includes(r.suite)).map((r) => r.suite)
-  const all = [...suites, ...gone]
+  const configured = new Map(suites.map((one) => [one.name, one]))
+  const gone = standing.bySuite.filter((r) => !configured.has(r.suite)).map((r) => r.suite)
+  const all = [...configured.keys(), ...gone]
 
   return (
     <div className={CARD} data-ref={standing.ref}>
@@ -443,6 +458,9 @@ export function RefCard({
           const run = newest.get(name)
           const now = going.get(name)
           const said = trouble[`${standing.ref}|${name}`]
+          const suite = configured.get(name)
+          /* Not yet a command a person has said yes to: the row offers that, in place of Run. */
+          const awaiting = suite && !suite.confirmed && !now ? suite : null
           return (
             <div className="flex min-w-0 flex-col gap-1 border-t pt-1.5" key={name}>
               {/*
@@ -458,7 +476,9 @@ export function RefCard({
                   <span className={NAME}>{name}</span>
                   {gone.includes(name) ? <span className={SAID}>no longer configured</span> : null}
                 </div>
-                {gone.includes(name) ? null : (
+                {gone.includes(name) ? null : awaiting ? (
+                  <ConfirmCommand suite={awaiting} onConfirm={() => onConfirmCommand(awaiting)} />
+                ) : (
                   <Button
                     variant="outline"
                     size="container"
@@ -471,6 +491,8 @@ export function RefCard({
                   </Button>
                 )}
               </div>
+              {/* What would be confirmed, in full, in the row the control is in. */}
+              {awaiting ? <Command suite={awaiting} /> : null}
 
               {now ? (
                 <>
@@ -571,6 +593,47 @@ function Stop({
 }
 
 /**
+ * The exact command and the exact directory of a suite, in full: what runs, and
+ * what a person is saying yes to when they confirm it.
+ */
+function Command({ suite }: { suite: Listed }) {
+  return (
+    <>
+      <p className="font-mono text-[10.5px] text-muted-foreground [overflow-wrap:anywhere]" data-command={suite.name}>
+        {suite.command.join(' ')}
+      </p>
+      <p className="font-mono text-[10.5px] text-muted-foreground [overflow-wrap:anywhere]">
+        in {suite.dir} · killed after {Math.round(suite.timeoutMs / 1000)}s · configured by {suite.by}
+      </p>
+    </>
+  )
+}
+
+/**
+ * The control a suite's row has in place of Run until a person has confirmed its command.
+ *
+ * A suite is written down by an agent, or arrives with the project, and it is a
+ * program this app would start. So the first press on a new or changed one is
+ * not Run: it is a person saying they have read the command printed in this row.
+ * One press, in the row itself — it starts nothing, and Run is what the row
+ * offers afterwards.
+ */
+function ConfirmCommand({ suite, onConfirm }: { suite: Listed; onConfirm: () => void }) {
+  return (
+    <Button
+      variant="outline"
+      size="container"
+      className="self-start"
+      onClick={onConfirm}
+      data-confirm-command={suite.name}
+      title="This command has not been confirmed on this machine, or has changed since it was. Read it in this row; confirming lets it be run, and runs nothing."
+    >
+      confirm command
+    </Button>
+  )
+}
+
+/**
  * How this project is tested, which is what the page shows with nothing picked.
  *
  * The exact command and the exact directory are printed, in full. That is
@@ -582,11 +645,13 @@ function Stop({
 function SuiteList({
   state,
   onRun,
+  onConfirmCommand,
   trouble,
   onPick,
 }: {
   state: ReturnType<typeof useRuns>['state']
   onRun: (suite: string) => void
+  onConfirmCommand: (suite: Listed) => void
   trouble: Record<string, string>
   onPick: (ref: string) => void
 }) {
@@ -617,15 +682,16 @@ function SuiteList({
             <div className="flex min-w-0 flex-col gap-1 border-t pt-1.5" key={s.name}>
               <div className="flex min-w-0 flex-col gap-1 @min-[300px]/container:flex-row @min-[300px]/container:items-baseline @min-[300px]/container:justify-between">
                 <span className={NAME}>{s.name}</span>
-                <Button variant="outline" size="container" className="self-start" onClick={() => onRun(s.name)} data-run={s.name}>
-                  run
-                </Button>
+                {s.confirmed ? (
+                  <Button variant="outline" size="container" className="self-start" onClick={() => onRun(s.name)} data-run={s.name}>
+                    run
+                  </Button>
+                ) : (
+                  <ConfirmCommand suite={s} onConfirm={() => onConfirmCommand(s)} />
+                )}
               </div>
               <p className={SAID}>{s.what}</p>
-              <p className="font-mono text-[10.5px] text-muted-foreground [overflow-wrap:anywhere]">{s.command.join(' ')}</p>
-              <p className="font-mono text-[10.5px] text-muted-foreground [overflow-wrap:anywhere]">
-                in {s.dir} · killed after {Math.round(s.timeoutMs / 1000)}s · configured by {s.by}
-              </p>
+              <Command suite={s} />
               {trouble[`|${s.name}`] ? <p className={TROUBLE}>{trouble[`|${s.name}`]}</p> : null}
             </div>
           ))

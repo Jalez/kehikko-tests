@@ -1,8 +1,11 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { isAbsolute, normalize } from 'node:path'
 import { z } from 'zod'
 
-import { adopt, claim, makeDir, NOWHERE, place } from '../store.ts'
+import { within } from 'kehikot-module-protocol'
+
+import { adopt, claim, makeDir, NOWHERE, place, projectOf } from '../store.ts'
+import { dropConfirmed, fingerprint, isConfirmed } from './confirmed.ts'
 
 /**
  * How this project is tested, as this app holds it.
@@ -299,6 +302,11 @@ export function configure(projectPath: string | null | undefined, input: {
     return { ok: false, error: `${at} is not a directory on this machine, so nothing could ever be run there.` }
   }
 
+  /* Inside the project, as the disk resolves it: a suite is how THIS project is tested, and the
+     folder it runs in is part of what a person confirms. Checked again at run time, like the rest. */
+  const outside = outsideProject(projectPath, at)
+  if (outside) return { ok: false, error: `nothing was configured. ${outside}` }
+
   const asked = typeof input.timeoutMs === 'number' && Number.isFinite(input.timeoutMs) ? input.timeoutMs : BOUNDS.TIMEOUT_DEFAULT_MS
   const timeoutMs = Math.min(BOUNDS.TIMEOUT_MAX_MS, Math.max(BOUNDS.TIMEOUT_MIN_MS, Math.round(asked)))
 
@@ -329,12 +337,53 @@ export function forget(projectPath: string | null | undefined, name: string): { 
   delete store.suites[name]
   const refused = save(projectPath, store)
   if (refused) return { ok: false, error: `nothing was changed. ${refused}` }
+  dropConfirmed(projectPath, name)
   /* The runs are deliberately kept. A record saying "the unit suite failed
      against !1848 on Tuesday" is a fact about Tuesday, and it does not stop being
      one because somebody has since deleted the suite. The page prints such a run
      with its suite marked as no longer configured, which is the honest reading. */
   return { ok: true }
 }
+
+/**
+ * A sentence when `dir` is not a folder inside the project, else null.
+ *
+ * Both sides are resolved first, so a folder inside the project that is a link
+ * to somewhere else is outside it. The project folder itself is inside.
+ */
+export function outsideProject(projectPath: string | null | undefined, dir: string): string | null {
+  const root = projectOf(projectPath)
+  if (root === null) return NOWHERE
+  let real: string
+  try {
+    real = realpathSync(dir)
+  } catch {
+    return `${dir} is not a directory on this machine, so nothing could ever be run there.`
+  }
+  if (within(root, real)) return null
+  return (
+    `${dir} is not inside this project (${root}). A suite runs in the project it is configured in, or in a folder `
+    + 'inside it; how another project is tested is configured in that project.'
+  )
+}
+
+/** A suite as a page or an agent is shown it: with what a confirmation would be of, and whether a person has given one. */
+export type Listed = Suite & {
+  /** Of the command and the directory, as they are now. The page sends it back when a person confirms. */
+  fingerprint: string
+  /** Whether a person has confirmed exactly this command, in this project, on this machine. */
+  confirmed: boolean
+}
+
+/** Every suite configured for this project, each with whether it has been confirmed here. */
+export function listed(projectPath: string | null | undefined): Listed[] {
+  return suites(projectPath).map((one) => ({ ...one, fingerprint: fingerprint(one), confirmed: isConfirmed(projectPath, one) }))
+}
+
+/** What an agent is told about a suite a person has not confirmed. One sentence, used wherever it is said. */
+export const AWAITS =
+  'It awaits confirmation in the Tests page: a person reads the command there and presses “confirm command” in the '
+  + 'suite’s own row, once, and again whenever its command or directory changes.'
 
 /** How a suite is written out anywhere a person reads it — the page, a tool result. */
 export function spell(s: Suite): string {

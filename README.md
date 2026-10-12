@@ -62,6 +62,15 @@ argument (the absolute path). With no project the page says so and every write
 is refused with a sentence — nothing falls back to a folder beside this program.
 Whether `.kehikot/` is committed is the host's per-project setting.
 
+One thing is not the project's and is not kept in it: which commands a person
+has confirmed (see below). That is one person's word about one machine, so it is
+machine state — `module-state/tests/confirmed.json` in this machine's Kehikot
+folder, the one the module registry is in — keyed by the project's real path. A
+project that is copied, moved or cloned is unconfirmed where it lands, whatever
+its files say. `TESTS_CONFIRMED_DIR` moves it, which is what the tests use it
+for; a server started with `KEHIKOT_MODULES_DIR` set keeps it beside that
+registry.
+
 The old single store (`data/` beside this program) is handed out on first
 contact: when a project is opened, it takes every legacy suite and run whose
 recorded `dir` is inside it (unless a nested repository or kehikot project sits
@@ -86,11 +95,19 @@ is a shell on an HTTP port. Around that:
   shell there is nothing to interpret a `;` or a `$(…)`, so nothing here has to
   sanitise them — and nothing here should ever start interpolating near a
   command.
-- Directories are absolute, checked at configuration time and again at run time.
+- Directories are absolute, are the project folder or a folder inside it as the
+  disk resolves it, and are checked at configuration time and again at run time.
+- **A person confirms a command before it first runs, and again after its
+  command or directory changes.** An agent writes a suite down; it runs once a
+  person has read it in this app's page and pressed *confirm command* in the
+  suite's own row. Until then `run_tests`, and the page's own Run, answer that
+  it awaits confirmation in the Tests page. Only the page can confirm, with its
+  ticket and the fingerprint of the command it drew.
 - One run at a time per suite, two runs at a time in total, a per-suite timeout
   that kills the process **group**, and a visible way to stop one.
-- Writes and runs from the page carry a ticket minted per process. What that
-  does and does not protect is written out at the top of `doors.ts`.
+- Writes, runs and reads from the page, and its event stream, carry a ticket
+  minted per process. What that does and does not protect is written out at the
+  top of `doors.ts`.
 - The manifest declares `storage: true` and there is no `server.cors`, so the
   page keeps a real origin and `/app` — and the ticket in it — is unreadable
   from another origin.
@@ -101,6 +118,8 @@ is a shell on an HTTP port. Around that:
 is free. **A WebSocket is not subject to CORS at all** — the handshake would
 have to check `Origin` and the ticket by hand before attaching. Nothing here
 needs a second direction: starting and stopping are ordinary ticketed POSTs.
+The stream is the page's alone: its ticket rides in the address, where an
+`EventSource` can put it.
 The argument in full is in `vite.config.ts` beside `/api/events`.
 
 **If the page reloads mid-run, the run continues.** It lives in the server
@@ -117,7 +136,9 @@ for a process that is not there.
 `how_tested`, `configure_suite`, `forget_suite`, `run_tests`, `test_runs`,
 `stop_run`. `run_tests` waits for the verdict by default, because an MCP client
 has no stream and an agent that asked to run the tests wants the answer rather
-than a receipt.
+than a receipt. A suite a person has not confirmed is not run, and the answer
+says where it awaits that; `how_tested` marks each such suite. Every tool
+carries annotations saying whether it only reads.
 
 ## The page is on the house stack
 
@@ -140,6 +161,7 @@ this page's normal case is three per cent of one.
     doors.ts           every door but the page and the stream; the MCP tools
     vite.config.ts     the doors as middleware, and the SSE stream
     suites/store.ts    how a project is tested — and the refusals that make spawning safe
+    suites/confirmed.ts which commands a person has confirmed, on this machine
     runs/spawn.ts      the spawn, the bounds, the kill, the event bus
     runs/store.ts      what was run against what, and the six verdicts
     store.ts           where a project's files are, the fence, and the legacy hand-out

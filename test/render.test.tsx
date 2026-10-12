@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from 'bun:test'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import type { Run, Standing } from '../runs/store.ts'
 import { RefCard } from '../src/app.tsx'
+import type { Listed } from '../suites/store.ts'
 import { Verdict } from '../src/view/verdict.tsx'
 
 /**
@@ -42,15 +43,29 @@ const standing = (runs: Run[]): Standing => ({
   bySuite: runs,
 })
 
-const draw = (s: Standing, suites: string[] = ['unit']) =>
+/** A suite as the page is handed it; confirmed, unless a test says not. */
+const listed = (name: string, confirmed = true): Listed => ({
+  name,
+  what: 'something worth proving',
+  command: ['bun', 'test'],
+  dir: '/tmp/project',
+  timeoutMs: 120_000,
+  by: 'the test',
+  at: '2026-01-01T00:00:00.000Z',
+  fingerprint: 'f'.repeat(64),
+  confirmed,
+})
+
+const draw = (s: Standing, suites: (string | Listed)[] = ['unit'], onConfirmCommand: (suite: Listed) => void = () => {}) =>
   render(
     <RefCard
       standing={s}
       kind={null}
-      suites={suites}
+      suites={suites.map((one) => (typeof one === 'string' ? listed(one) : one))}
       live={[]}
       trouble={{}}
       onRun={() => {}}
+      onConfirmCommand={onConfirmCommand}
       onStop={() => {}}
       confirming={null}
       onConfirm={() => {}}
@@ -180,4 +195,22 @@ test('a card says nothing about parts', () => {
   const { container } = draw(standing([]))
   expect(container.querySelector('[data-outside]')).toBeNull()
   expect(container.textContent).not.toContain('picked part')
+})
+
+test('a suite nobody has confirmed offers that in its own row, in place of Run, with the command in full', () => {
+  const confirmed: string[] = []
+  draw(standing([]), [listed('unit'), listed('fresh', false)], (suite) => void confirmed.push(`${suite.name} ${suite.fingerprint}`))
+  /* The confirmed one is as it always was. */
+  expect(document.querySelector('[data-run="unit"]')).toBeTruthy()
+  expect(document.querySelector('[data-confirm-command="unit"]')).toBeNull()
+  /* The other has one control, and it is not Run. */
+  const control = document.querySelector('[data-confirm-command="fresh"]') as HTMLElement
+  expect(control.textContent).toBe('confirm command')
+  expect(control.getAttribute('data-slot')).toBe('button')
+  expect(document.querySelector('[data-run="fresh"]')).toBeNull()
+  /* What is being confirmed is printed in that row. */
+  expect(document.querySelector('[data-command="fresh"]')?.textContent).toBe('bun test')
+  expect(control.closest('.border-t')?.textContent).toContain('in /tmp/project')
+  fireEvent.click(control)
+  expect(confirmed).toEqual([`fresh ${'f'.repeat(64)}`])
 })

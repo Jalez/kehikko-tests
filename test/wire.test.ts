@@ -52,10 +52,10 @@ describe('a write from the page', () => {
 })
 
 describe('a read', () => {
-  test('carries no ticket, and names the project', async () => {
+  test('carries the page’s ticket, and names the project', async () => {
     const read = await state(dir)
     expect(read.nowhere).toBe(false)
-    expect(server.asked).toEqual([{ method: 'GET', path: '/api/state', ticket: null }])
+    expect(server.asked).toEqual([{ method: 'GET', path: '/api/state', ticket: TICKET }])
   })
 
   test('with no project is "nowhere", not a failure', async () => {
@@ -75,12 +75,12 @@ describe('a read', () => {
 describe('the stream door', () => {
   test('is /api/events by GET, and its events are NAMED, the hello first', () => {
     const seen: [string | undefined, unknown][] = []
-    const open = stream('GET', '/api/events', new URLSearchParams({ project: dir }), (data, name) => seen.push([name, data]))
-    expect(open && 'close' in open).toBe(true)
+    const open = stream('GET', '/api/events', new URLSearchParams({ project: dir, ticket: TICKET }), (data, name) => seen.push([name, data]))
+    if (!open || !('close' in open)) throw new Error('the stream did not open')
     expect(seen[0]?.[0]).toBe('hello')
     expect(seen[0]?.[1]).toMatchObject({ active: [], slots: expect.any(Number) })
-    open?.close()
-    expect(() => open?.close()).not.toThrow()
+    open.close()
+    expect(() => open.close()).not.toThrow()
     expect(stream('GET', '/api/state', new URLSearchParams(), () => {})).toBeNull()
     expect(stream('POST', '/api/events', new URLSearchParams(), () => {})).toBeNull()
   })

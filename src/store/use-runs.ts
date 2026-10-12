@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { AskFailed, follow, type Attachment } from 'kehikot-module-protocol/client'
+import { AskFailed, follow, ticket, type Attachment } from 'kehikot-module-protocol/client'
 
 import type { Run } from '../../runs/store.ts'
 import { state, type Live, type State } from './ask.ts'
@@ -72,7 +72,7 @@ export interface Runs {
 }
 
 /** The names this stream's events carry; `beat` is the server's keep-alive and nothing here reads it. */
-const NAMES = ['hello', 'started', 'line', 'counts', 'ended'] as const
+const NAMES = ['hello', 'started', 'line', 'counts', 'ended', 'suites'] as const
 /** How many finished runs are remembered in memory, purely to repaint cards. */
 const KEEP_ENDED = 40
 
@@ -138,6 +138,12 @@ export function useRuns(project: string | null): Runs {
         reload()
         return
       }
+      if (event === 'suites') {
+        /* A suite was configured, changed, taken off the list or confirmed. Which and how is not
+           said: the page reads again, so a row never offers Run for a command nobody confirmed. */
+        reload()
+        return
+      }
       if (event === 'started') {
         const said = data as { run?: Run } | null
         if (!said?.run) return
@@ -181,7 +187,8 @@ export function useRuns(project: string | null): Runs {
     /* `probe`: the stream dropping is the first sign this app's server has gone, and nothing else
        here asks on a timer. So `follow` asks: an answer leaves things as they are, no answer is
        what puts the "own server is not answering" cover up, and another process's is a stale page. */
-    const unfollow = follow('/api/events', hear, { query: { project }, events: NAMES, probe: true, onAttachment: setAttachment })
+    /* The ticket rides in the address: an `EventSource` cannot carry a header, and the stream is the page's alone. */
+    const unfollow = follow('/api/events', hear, { query: { project, ticket: ticket() }, events: NAMES, probe: true, onAttachment: setAttachment })
 
     return () => {
       clearInterval(flush)

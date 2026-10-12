@@ -1,3 +1,7 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
 /**
@@ -9,3 +13,10 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
  * from what it says in a browser.
  */
 GlobalRegistrator.register()
+
+/**
+ * Where a person's confirmations are kept, for the tests: a temporary directory,
+ * never this machine's own. Set here, before any test file loads, so no test can
+ * write a confirmation where the real app would read it.
+ */
+process.env.TESTS_CONFIRMED_DIR = mkdtempSync(join(tmpdir(), 'tests-confirmed-'))

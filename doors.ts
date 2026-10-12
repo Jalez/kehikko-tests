@@ -2,8 +2,9 @@ import { establishBuild, mintTicket, refuseTicket, type Reply } from 'kehikot-mo
 
 import { ID, MANIFEST, VERSION } from './manifest.ts'
 import { NOWHERE, projectOf } from './store.ts'
-import { BOUNDS, configure, forget, spell, suites, trouble as suiteTrouble } from './suites/store.ts'
-import { active, begin, end, isLive, MAX_LIVE, runningSuite, waitFor } from './runs/spawn.ts'
+import { isConfirmed, keepConfirmed, fingerprint } from './suites/confirmed.ts'
+import { AWAITS, BOUNDS, configure, forget, listed, outsideProject, spell, suite as findSuite, suites, trouble as suiteTrouble } from './suites/store.ts'
+import { active, begin, end, isLive, MAX_LIVE, runningSuite, suitesChanged, waitFor } from './runs/spawn.ts'
 import { ago, knownRefs, run as findRun, standingFor, sweep, type Run } from './runs/store.ts'
 import { attach } from './runs/stream.ts'
 
@@ -56,17 +57,23 @@ import { attach } from './runs/stream.ts'
  *   SECOND line rather than the first. The first line is that a request cannot
  *   name a command: the worst a program holding the ticket can do is run a suite
  *   somebody already wrote down and could have run themselves.
- * - **It does not gate reads, deliberately.** How a project is tested is not a
- *   secret, and requiring a ticket to look would only mean an agent's curl needs
- *   one to read a page it can already open.
+ * - **It gates the page's reads and its stream too.** They answer with a
+ *   project's suites and with what its runs printed, and this app's own page is
+ *   the only caller they have; an agent reads the same through `/mcp`.
  * - **It does not gate `/mcp`, and that is the interesting exception.** An MCP
  *   client is not a browser: it has no page, was handed no ticket, and requiring
  *   one there would shut the door this module exists to be configured through.
  *   So configuring a suite and starting a run are both available over `/mcp`
  *   without a ticket — which is a real widening, and the thing that makes it
  *   acceptable is the same first line as above. `configure_suite` validates an
- *   argv array and an absolute directory that must exist; `run_tests` takes a
- *   name. There is no spelling of either that turns this port into a shell.
+ *   argv array and an absolute directory that must exist inside the project;
+ *   `run_tests` takes a name. There is no spelling of either that turns this
+ *   port into a shell.
+ * - **What `/mcp` cannot do is say yes for a person.** A suite runs only once
+ *   its command has been confirmed, and confirming is the page's alone: a
+ *   ticketed press in the suite's own row, of the command the page drew
+ *   (`suites/confirmed.ts`). So what an agent writes down, and what arrives in a
+ *   project's files, waits for somebody to read it.
  */
 
 /* ------------------------------------------------------------------ *
@@ -210,17 +217,20 @@ function tools() {
       description:
         'How this project is tested, as it has been told: every configured suite, the exact command it runs, '
         + 'where it runs, and what it proves. Also what is running right now. Read this before running anything — the '
-        + 'names here are the only things run_tests accepts.',
+        + 'names here are the only things run_tests accepts, and it says which of them a person has yet to confirm.',
       inputSchema: { type: 'object', properties: { project: PROJECT }, required: ['project'] },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     {
       name: 'configure_suite',
       description:
         'Write down how something is tested, under a name. The command is an ARRAY of arguments — ["bun", "test"], not '
         + '"bun test" — because this server never hands anything to a shell; there is nothing to interpret a pipe or a '
-        + 'semicolon, so split the command yourself. The directory must be absolute and must exist. Calling this again '
-        + 'with the same name replaces that suite. Say what the suite PROVES in `what`: it is what somebody reads six '
-        + 'weeks later when it goes red.',
+        + 'semicolon, so split the command yourself. The directory must be absolute, must exist, and must be the '
+        + 'project folder or a folder inside it. Calling this again with the same name replaces that suite. A suite '
+        + 'does not run until a person has confirmed its command in the Tests page, and needs that again whenever its '
+        + 'command or directory changes — so tell the person when you configure or change one. Say what the suite '
+        + 'PROVES in `what`: it is what somebody reads six weeks later when it goes red.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -232,7 +242,7 @@ function tools() {
             items: { type: 'string' },
             description: 'Argument array. ["bun", "test"] — the first element is the program.',
           },
-          dir: { type: 'string', description: 'Absolute path to the directory to run in. Must exist.' },
+          dir: { type: 'string', description: 'Absolute path to the directory to run in: the project folder or a folder inside it. Must exist.' },
           timeoutMs: {
             type: 'number',
             description: `How long before the run is killed. Clamped to ${BOUNDS.TIMEOUT_MIN_MS}–${BOUNDS.TIMEOUT_MAX_MS}; defaults to ${BOUNDS.TIMEOUT_DEFAULT_MS}.`,
@@ -241,6 +251,8 @@ function tools() {
         },
         required: ['project', 'name', 'what', 'command', 'dir'],
       },
+      /* It writes: a suite of the same name is replaced, and what it then awaits is a person's confirmation. */
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     {
       name: 'forget_suite',
@@ -250,6 +262,7 @@ function tools() {
         properties: { project: PROJECT, name: { type: 'string' } },
         required: ['project', 'name'],
       },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     {
       name: 'run_tests',
@@ -258,8 +271,9 @@ function tools() {
         + `the answer to "was this change tested" has something in it. Suites are per project; call how_tested for the `
         + `ones configured in yours. This `
         + `server runs at most ${MAX_LIVE} suites at once and one copy of any given suite, and refuses rather than `
-        + `queueing. By default it waits for the verdict; pass wait: 0 to be told the run started and read it later with `
-        + `test_runs.`,
+        + `queueing. A suite a person has not confirmed in the Tests page, or whose command or directory changed since `
+        + `they did, is not run: the answer says it awaits confirmation there. By default it waits for the verdict; `
+        + `pass waitMs: 0 to be told the run started and read it later with test_runs.`,
       inputSchema: {
         type: 'object',
         properties: {
@@ -271,6 +285,8 @@ function tools() {
         },
         required: ['project', 'suite'],
       },
+      /* Not a read: it starts a program on this machine, which may write and reach whatever that program does. */
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
     {
       name: 'test_runs',
@@ -279,11 +295,14 @@ function tools() {
         + 'against says so in those words — that is not a pass and not a failure. Omit the ref for every reference '
         + 'anything is recorded against.',
       inputSchema: { type: 'object', properties: { project: PROJECT, ref: { type: 'string' } }, required: ['project'] },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     {
       name: 'stop_run',
       description: 'Stop a run that is going. The run ends as "stopped", which is deliberately not "failed" — nobody learned anything about the code.',
       inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      /* It ends a process, and what that run would have said is lost. */
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
   ]
 }
@@ -292,7 +311,13 @@ function suitesText(project: string): string {
   const list = suites(project)
   const going = active()
   const head = list.length
-    ? list.map((s) => `${spell(s)}${runningSuite(project, s.name) ? '\n      RUNNING NOW' : ''}`).join('\n')
+    ? list
+        .map(
+          (s) =>
+            `${spell(s)}${isConfirmed(project, s) ? '' : `\n      NOT CONFIRMED, so it will not run. ${AWAITS}`}`
+            + `${runningSuite(project, s.name) ? '\n      RUNNING NOW' : ''}`,
+        )
+        .join('\n')
     : 'Nothing has been configured in this project. This app does not guess how a project is tested — say so with configure_suite, and nothing runs until you do.'
   const busy = going.length
     ? `\n\n${going.length} of ${MAX_LIVE} run slots busy: ${going.map((g) => `${g.run.suite} (${g.run.id})`).join(', ')}`
@@ -357,12 +382,18 @@ async function mcp(rpc: Rpc): Promise<Reply> {
           by: str(args.agent, MAX_BY) || AGENT,
         })
         if (!out.ok) return text(out.error, true)
-        return text(`Configured:\n${spell(out.suite)}\n\nNothing has run yet. run_tests ${out.suite.name} starts it.`)
+        suitesChanged(project)
+        return text(
+          isConfirmed(project, out.suite)
+            ? `Configured:\n${spell(out.suite)}\n\nIts command and directory are as a person confirmed them. Nothing has run yet. run_tests ${out.suite.name} starts it.`
+            : `Configured:\n${spell(out.suite)}\n\nNothing has run yet, and it will not until a person confirms it. ${AWAITS} Tell them; after that, run_tests ${out.suite.name} starts it.`,
+        )
       }
 
       if (name === 'forget_suite') {
         const out = forget(project, str(args.name, BOUNDS.NAME))
         if (!out.ok) return text(out.error ?? 'it did not work', true)
+        suitesChanged(project)
         return text(`"${str(args.name, BOUNDS.NAME)}" is off the list. Runs already recorded against it are kept.`)
       }
 
@@ -465,9 +496,15 @@ export async function answer(
     return mcp(body as Rpc)
   }
 
-  /* Reads are GET and are not gated on the ticket. How a project is tested is
-     not a secret, and a ticket on a read would only mean an agent's curl needs
-     one to see a page it can already open. */
+  /* The page's reads ask for its ticket too. They answer with a project's suites and with what
+     its runs printed, and this app's own page is the only caller they have; an agent reads the
+     same through the MCP door. Marked as a ticket refusal, so a page older than this server knows
+     to reload itself. */
+  if (method === 'GET' && path.startsWith('/api/')) {
+    const stranger = refuseTicket(ticket, TICKET, 'that was not asked by this app’s own page')
+    if (stranger) return stranger
+  }
+
   if (method === 'GET' && path === '/api/state') {
     /* One project's, named by `?project=` — the page takes it off
        `kehikot.context.projectPath`. With none, `nowhere` says so and the page
@@ -477,7 +514,8 @@ export async function answer(
     return ok({
       ok: true,
       nowhere: !named,
-      suites: suites(project),
+      /* Each with whether a person has confirmed it here, and the fingerprint a confirmation is of. */
+      suites: listed(project),
       /* The live runs travel with everything they have said so far, so a page
          that has just loaded draws a run in progress with its output rather than
          an empty box that fills in only from the next line onwards. */
@@ -531,6 +569,31 @@ export async function answer(
       return ok({ ok: true, run: started.run })
     }
 
+    /*
+     * A person saying yes to one suite's command, from its row in this app's own page.
+     *
+     * The page sends back the fingerprint of the command it drew. If the suite is not that any more
+     * — an agent changed it between the drawing and the press — nothing is confirmed, and the page
+     * reads again so the person sees what they would be confirming. There is no door for this but
+     * the page's: an agent cannot confirm what it configured.
+     */
+    if (path === '/api/confirm') {
+      const project = projectIn(body.project)
+      if (project === null) return bad(refusedProject(body.project))
+      const name = str(body.suite, BOUNDS.NAME)
+      const found = findSuite(project, name)
+      if (!found) return bad(`there is no suite called "${name}" in this project, so there is nothing to confirm.`, 404)
+      if (fingerprint(found) !== str(body.fingerprint, 128)) {
+        suitesChanged(project)
+        return bad(`"${name}" changed since this page drew it, so nothing was confirmed. Read the command as it is now and confirm that.`, 409)
+      }
+      const outside = outsideProject(project, found.dir)
+      if (outside) return bad(`"${name}" cannot be confirmed. ${outside}`, 409)
+      keepConfirmed(project, found)
+      suitesChanged(project)
+      return ok({ ok: true, suites: listed(project) })
+    }
+
     if (path === '/api/stop') {
       const out = end(str(body.id, MAX_ID), 'stopped', 'stopped from this app’s own page.')
       if (!out.ok) return bad(out.error ?? 'it did not work', 409)
@@ -550,16 +613,22 @@ export async function answer(
  * `counts`, `ended`, `beat`). What is sent and when is `attach`'s, for both servers; this only
  * hands it somewhere to write.
  *
- * Not gated on the ticket, like the reads: what it carries is what `/api/state` already says.
- * `null`: not this door.
+ * Behind the ticket, like the reads: it carries what a run prints. `null`: not this door; a
+ * `reply`: a refusal to send instead of opening the stream.
  */
 export function stream(
   method: string,
   path: string,
   query: URLSearchParams,
   emit: (event: unknown, name?: string) => void,
-): { close: () => void } | null {
+  ticket: string | null = null,
+): { close: () => void } | { reply: Reply } | null {
   if (method !== 'GET' || path !== '/api/events') return null
+  /* What a run prints goes down this stream, so it is the page's like the reads are. An
+     `EventSource` cannot carry a header, so the ticket rides in the address, as the page that
+     opened the stream printed it. */
+  const stranger = refuseTicket(query.get('ticket') ?? ticket, TICKET, 'that stream was not opened by this app’s own page')
+  if (stranger) return { reply: stranger }
   /* The stream is one project's: a page standing in one project is never shown another's runs. */
   return { close: attach({ write: (event, data) => emit(data, event) }, projectOf(query.get('project'))) }
 }
