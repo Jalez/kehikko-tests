@@ -37,17 +37,17 @@ test('nothing picked is everything', () => {
   expect(shown([part('seam', ['gh#10'], false)])).toEqual(['going', 'gh#7', 'gh#10', 'suite'])
 })
 
-test('a picked part leaves the references it lists; a suite is in no part; a run that is going is kept', () => {
-  expect(shown([part('seam', ['gh#10'], true)])).toEqual(['going', 'gh#10'])
+test('a picked part leaves the references it lists; the suites and a run that is going are kept', () => {
+  expect(shown([part('seam', ['gh#10'], true)])).toEqual(['going', 'gh#10', 'suite'])
 })
 
 test('a part narrows by its references whichever way the host spells its documents', () => {
-  expect(shown([part('seam', ['gh#10'], true, { documents: ['docs/seam.md'], files: [] })])).toEqual(['going', 'gh#10'])
-  expect(shown([part('seam', ['gh#10'], true, { files: ['chapters/seam.tex'] })])).toEqual(['going', 'gh#10'])
+  expect(shown([part('seam', ['gh#10'], true, { documents: ['docs/seam.md'], files: [] })])).toEqual(['going', 'gh#10', 'suite'])
+  expect(shown([part('seam', ['gh#10'], true, { files: ['chapters/seam.tex'] })])).toEqual(['going', 'gh#10', 'suite'])
 })
 
-test('keep: only a run that is going is in hand on the resting page', () => {
-  expect(items.map(inHand)).toEqual([true, false, false, false])
+test('keep: a run that is going and the suites are in hand on the resting page', () => {
+  expect(items.map(inHand)).toEqual([true, false, false, true])
 })
 
 test('the sentence for a pick that leaves nothing is the protocol’s', () => {

@@ -15,11 +15,10 @@ import type { Live } from '@/store/ask.ts'
  *
  *  - **Nothing picked is the page as it was.**
  *  - **Tied to a reference**: in front when a picked part lists that reference.
- *  - **Tied to none** — a suite as the project configured it, a run started for
- *    nothing in particular — is in no part, and is not drawn under a pick. It
- *    is the project's, and it is back the moment nothing is picked. It is not
- *    answered `{ whole: true }`: how a project is tested is not a thing about
- *    this epic.
+ *  - **A suite is a control, not an item.** How the project is tested, with
+ *    its run buttons, is what a person presses to test anything at all, so it
+ *    is drawn whatever is picked (`inHand`). It is not answered
+ *    `{ whole: true }`: it is not a thing about this epic.
  *  - **What is in hand is kept.** The references a person selected, on the
  *    canvas or here, are drawn whatever is picked (`keep` in `app.tsx`). So is
  *    a run that is going with no reference: it can only be watched and stopped
@@ -64,5 +63,9 @@ export function resting(refs: readonly string[], suites: readonly Listed[], live
   ]
 }
 
-/** A run that is going is in hand: it is watched, and stopped, from here and nowhere else. */
-export const inHand = (item: Resting): boolean => item.kind === 'going'
+/**
+ * What is drawn whatever is picked: a run that is going — it is watched, and
+ * stopped, from here and nowhere else — and the suites, which are this page's
+ * controls.
+ */
+export const inHand = (item: Resting): boolean => item.kind === 'going' || item.kind === 'suite'
