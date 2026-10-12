@@ -225,24 +225,17 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * moves when a reader highlights a sentence, and a word ticked without a
    * reaction behind it is exactly the rot this field would suffer first.
    *
-   * ## Not `parts`, and `partless` below says why
+   * ## `parts`: the page follows the picked parts of the epic
    *
-   * A person may pick parts of the open epic out in the host's bar. This page
-   * lists nothing per epic: it draws the references somebody SELECTED, and
-   * with nothing selected the references this project has runs for, which is
-   * the project's list and has never been narrowed to the open epic. Hiding a
-   * selected reference because a part elsewhere was picked would be the page
-   * disagreeing with the person's own click.
-   *
-   * It used to say `parts` here for a reaction in words — a line at the top
-   * counting the references outside the picked parts, and a sentence on the
-   * card of each one. Both were taken out: they cost rows to report on
-   * something this page does not act on, and the host's bar already shows the
-   * pick. With them gone a pick changes nothing on this page, so claiming to
-   * react to it would be a tick with no reaction behind it.
+   * A person may pick parts of the open epic out in the host's bar, and a part
+   * lists references. A run was made for a reference, so with parts picked the
+   * resting page is the references a picked part lists; a suite as the project
+   * configured it and a finished run for nothing in particular are tied to no
+   * reference and are not drawn until nothing is picked. The references a
+   * person selected are in hand and are never taken away by a pick, and
+   * neither is a run that is going. `src/focus.ts` is the whole of it.
    */
-  reacts: ['selection'],
-  partless: 'Shows the references a person selected and the project’s own runs; narrowing would hide their own selection.',
+  reacts: ['selection', 'parts'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     uses: ['live:read'],

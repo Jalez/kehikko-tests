@@ -41,17 +41,19 @@ anywhere in the store, and the verdicts are six words rather than two:
 And a reference with no runs gets a sentence rather than a mark: *nothing has
 been run against this in this project — that is not a pass and not a failure.*
 
-## The parts of an epic change nothing here
+## Under a pick of the epic's parts
 
 An epic may be divided into parts, and a person may pick some of them out in
-the host's bar. The modules that list an epic's worth of things narrow to the
-picked parts. This one lists nothing per epic — it draws the references
-somebody selected, and with nothing selected the references this project has
-runs for — so it narrows nothing and says nothing about parts: the manifest
-declares `partless`, with the reason. (It used to print a line counting the
-references outside the picked parts and a sentence on each such card; both
-were removed, because the host's bar already shows the pick.) The MCP door is
-not told the focus and answers as it always did.
+the host's bar. A part lists references, and what this page draws is tied to a
+reference or to none. With nothing picked the page is as it always was. With
+parts picked, the resting page is the references a picked part lists; a suite
+as the project configured it is tied to no reference and is not drawn until
+nothing is picked. What is in hand stays: the references a person selected, on
+the canvas or here, keep their cards whatever is picked, and a run that is
+going is never taken off the page. A pick that leaves nothing says one
+sentence, and nothing else on the page is about the pick. The rule is the
+protocol's (`useFocus().narrow`); what each thing is tied to is `src/focus.ts`.
+The MCP door is not told the pick and answers as it always did.
 
 ## Where the data lives
 

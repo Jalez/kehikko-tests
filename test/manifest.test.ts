@@ -44,12 +44,10 @@ test('there is one epic-scoped mode and an MCP door', () => {
   expect(MANIFEST.mcp?.url).toBe('/mcp')
 })
 
-test('says it reacts to the selection, and says why it does not follow the picked parts of the epic', () => {
-  /* The page draws what somebody selected and the project's own runs. It used
-     to answer a pick in words — a line counting the references outside the
-     picked parts, a mark on their cards — and those are gone, so it does
-     nothing with parts and says so rather than claiming a reaction it has not. */
-  expect(MANIFEST.reacts).toEqual(['selection'])
-  expect(MANIFEST.partless).toBe('Shows the references a person selected and the project’s own runs; narrowing would hide their own selection.')
+test('says it reacts to the selection and follows the picked parts of the epic', () => {
+  /* A run is tied to a reference and a part lists references, so the page narrows by them; what a
+     person selected is kept. It no longer says it has nothing a part could own. */
+  expect(MANIFEST.reacts).toEqual(['selection', 'parts'])
+  expect(MANIFEST.partless).toBeUndefined()
   expect(partsDeclaration(MANIFEST)).toEqual([])
 })
