@@ -1,7 +1,7 @@
 import { answered, ask } from 'kehikot-module-protocol/client'
 
 import type { Run, Standing } from '../../runs/store.ts'
-import type { Suite } from '../../suites/store.ts'
+import type { Listed } from '../../suites/store.ts'
 
 /**
  * Talking to this app's own server, which is the same origin this page came
@@ -46,7 +46,8 @@ export interface Live {
 export interface State {
   /** No project is open, so there is no store to read. Not a fault; the page says so. */
   nowhere: boolean
-  suites: Suite[]
+  /** Each with whether a person has confirmed its command on this machine, and what a confirmation would be of. */
+  suites: Listed[]
   active: Live[]
   slots: number
   refs: string[]
@@ -59,7 +60,7 @@ export interface State {
 
 export async function state(project: string | null): Promise<State> {
   /* Thrown as `AskFailed` when it could not be read; its `kind` says whether nothing answered. */
-  const body = answered(await ask<Partial<State>>('/api/state', { query: { project } })) ?? {}
+  const body = answered(await ask<Partial<State>>('/api/state', { query: { project }, ticket: true })) ?? {}
   return {
     nowhere: body.nowhere === true,
     suites: Array.isArray(body.suites) ? body.suites : [],
@@ -83,7 +84,7 @@ export async function state(project: string | null): Promise<State> {
  */
 export async function standings(project: string | null, refs: string[]): Promise<Standing[]> {
   if (!refs.length) return []
-  const body = answered(await ask<{ standings?: unknown }>('/api/standings', { query: { refs: refs.join(','), project } })) ?? {}
+  const body = answered(await ask<{ standings?: unknown }>('/api/standings', { query: { refs: refs.join(','), project }, ticket: true })) ?? {}
   return Array.isArray(body.standings) ? (body.standings as Standing[]) : []
 }
 
@@ -111,5 +112,17 @@ export async function run(project: string | null, suite: string, ref: string): P
 /** Stop a run that is going. It ends as `stopped`, which is deliberately not `failed`. */
 export async function stop(id: string): Promise<{ ok: boolean; error?: string }> {
   const asked = await ask('/api/stop', { body: { id } })
+  return asked.ok ? { ok: true } : { ok: false, error: asked.error }
+}
+
+/**
+ * A person confirming one suite's command, from its row.
+ *
+ * It sends the suite's name and the fingerprint of the command this page drew —
+ * what the person read — and nothing that could be a command. If the suite has
+ * changed since, the server confirms nothing and says so.
+ */
+export async function confirm(project: string | null, suite: string, fingerprint: string): Promise<{ ok: boolean; error?: string }> {
+  const asked = await ask('/api/confirm', { body: { project, suite, fingerprint } })
   return asked.ok ? { ok: true } : { ok: false, error: asked.error }
 }

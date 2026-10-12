@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -55,8 +55,14 @@ const { configure } = await import('../suites/store.ts')
 const { begin, end, stopAll, subscribe, waitFor, MAX_LIVE, runningSuite } = await import('../runs/spawn.ts')
 const { standingFor } = await import('../runs/store.ts')
 
-const define = (name: string, argv: string[], timeoutMs = 30_000) =>
-  configure(here, { name, what: `a deliberate ${name} for the tests`, command: argv, dir: here, timeoutMs, by: 'the test' })
+const { keepConfirmed } = await import('../suites/confirmed.ts')
+
+/* Configured, and confirmed as a person would in the page: a suite nobody confirmed does not run. */
+const define = (name: string, argv: string[], timeoutMs = 30_000) => {
+  const out = configure(here, { name, what: `a deliberate ${name} for the tests`, command: argv, dir: here, timeoutMs, by: 'the test' })
+  if (out.ok) keepConfirmed(here, out.suite)
+  return out
+}
 
 beforeAll(() => {
   define('green', ['sh', '-c', 'echo "2 pass"; echo "0 fail"; exit 0'])
@@ -207,4 +213,44 @@ test('a stream is one project’s: another project’s run never reaches it', as
   expect(mine).toContain('started')
   expect(mine).toContain('ended')
   expect(theirs).toEqual(['hello'])
+})
+
+test('a suite nobody has confirmed is not run, and the refusal says where it awaits that', () => {
+  configure(here, { name: 'unseen', what: 'a suite no person has looked at', command: ['sh', '-c', 'exit 0'], dir: here, by: 'the test' })
+  const out = begin({ project: here, suite: 'unseen', by: 'the test' })
+  expect(out.ok).toBe(false)
+  if (!out.ok) {
+    expect(out.error).toContain('nothing was started')
+    expect(out.error).toContain('awaits confirmation in the Tests page')
+    expect(out.error).toContain('sh -c exit 0')
+  }
+  expect(runningSuite(here, 'unseen')).toBeNull()
+})
+
+test('a confirmed suite whose command or directory changes needs confirming again', async () => {
+  mkdirSync(join(here, 'sub'), { recursive: true })
+  define('moving', ['sh', '-c', 'exit 0'])
+  expect((await runTo('moving')).verdict).toBe('passed')
+  /* The command. */
+  configure(here, { name: 'moving', what: 'a deliberate moving for the tests', command: ['sh', '-c', 'exit 1'], dir: here, by: 'the test' })
+  expect(begin({ project: here, suite: 'moving', by: 'the test' })).toMatchObject({ ok: false, error: expect.stringContaining('awaits confirmation') })
+  /* Back to exactly what was confirmed: that is the command a person said yes to. */
+  configure(here, { name: 'moving', what: 'said differently, the same command', command: ['sh', '-c', 'exit 0'], dir: here, timeoutMs: 5_000, by: 'somebody else' })
+  expect((await runTo('moving')).verdict).toBe('passed')
+  /* The directory. */
+  configure(here, { name: 'moving', what: 'a deliberate moving for the tests', command: ['sh', '-c', 'exit 0'], dir: join(here, 'sub'), by: 'the test' })
+  expect(begin({ project: here, suite: 'moving', by: 'the test' })).toMatchObject({ ok: false, error: expect.stringContaining('awaits confirmation') })
+})
+
+test('a suite whose file says to run outside the project is not run, confirmed or not', () => {
+  const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'tests-spawn-outside-')))
+  const file = join(here, '.kehikot', 'tests', 'suites.json')
+  const kept = JSON.parse(readFileSync(file, 'utf8'))
+  kept.suites.strayed = { ...kept.suites.green, name: 'strayed', dir: elsewhere }
+  writeFileSync(file, JSON.stringify(kept))
+  keepConfirmed(here, kept.suites.strayed)
+  const out = begin({ project: here, suite: 'strayed', by: 'the test' })
+  rmSync(elsewhere, { recursive: true, force: true })
+  expect(out.ok).toBe(false)
+  if (!out.ok) expect(out.error).toContain('outside its project')
 })

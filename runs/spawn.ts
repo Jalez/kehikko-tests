@@ -2,7 +2,8 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 
 import { NOWHERE, projectOf } from '../store.ts'
-import { suite as findSuite, suites } from '../suites/store.ts'
+import { isConfirmed } from '../suites/confirmed.ts'
+import { AWAITS, outsideProject, suite as findSuite, suites } from '../suites/store.ts'
 import { fold, NOTHING, type Counts } from './counts.ts'
 import { KEEP_LINES, record, type Run, type Verdict } from './store.ts'
 
@@ -91,6 +92,8 @@ export type Event =
   | { kind: 'line'; project: string; id: string; stream: 'out' | 'err'; text: string }
   | { kind: 'counts'; project: string; id: string; passed: number | null; failed: number | null }
   | { kind: 'ended'; project: string; run: Run }
+  /** The suites of a project, or which of them are confirmed, changed. Nothing about what: the page reads again. */
+  | { kind: 'suites'; project: string }
 
 type Listener = (event: Event) => void
 
@@ -122,6 +125,12 @@ function tell(event: Event): void {
       /* ignore */
     }
   }
+}
+
+/** Say that a project's suites changed, to every page standing in it. */
+export function suitesChanged(projectPath: string | null | undefined): void {
+  const project = projectOf(projectPath)
+  if (project !== null) tell({ kind: 'suites', project })
 }
 
 interface Live {
@@ -185,6 +194,21 @@ export function begin(input: { project: string | null | undefined; suite: string
       error: known.length
         ? `there is no suite called "${name}". Configured here: ${known.join(', ')}. Suites are configured over this app's MCP door with configure_suite; a run only ever names one.`
         : `there is no suite called "${name}", and in fact nothing has been configured in this project yet. Say how it is tested first, with configure_suite over this app's MCP door.`,
+    }
+  }
+
+  /* Where it runs, judged again now: the file the suite is kept in can be edited, or can have
+     arrived with the project. */
+  if (existsSync(found.dir)) {
+    const outside = outsideProject(project, found.dir)
+    if (outside) return { ok: false, error: `nothing was started. "${name}" is configured to run in a folder outside its project: ${outside}` }
+  }
+
+  /* And whether a person has said yes to exactly this command, here. See `suites/confirmed.ts`. */
+  if (!isConfirmed(project, found)) {
+    return {
+      ok: false,
+      error: `nothing was started. "${name}" has not been confirmed on this machine as it is now: ${found.command.join(' ')} in ${found.dir}. ${AWAITS}`,
     }
   }
 

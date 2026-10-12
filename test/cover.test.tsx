@@ -6,6 +6,8 @@ import { join } from 'node:path'
 
 import { TICKET, answer } from '../doors.ts'
 import { App } from '../src/app.tsx'
+import { keepConfirmed } from '../suites/confirmed.ts'
+import { suite } from '../suites/store.ts'
 
 import { Line, greet, install, server, settle, uninstall } from './fakes.ts'
 
@@ -27,6 +29,9 @@ beforeEach(async () => {
     method: 'tools/call',
     params: { name: 'configure_suite', arguments: { project: dir, name: 'unit', what: 'the page can start a run', command: ['sh', '-c', 'exit 0'], dir, agent: 'the test' } },
   }, null)
+  /* As a person would have, in the page: a suite nobody confirmed offers that instead of Run. */
+  const made = suite(dir, 'unit')
+  if (made) keepConfirmed(dir, made)
 })
 afterEach(() => {
   cleanup()
@@ -100,6 +105,26 @@ describe('the not-ready moments, each as the one shared cover', () => {
     expect(document.body.textContent).toContain('This page is older than its server — reloading…')
   })
 
+  test('a suite nobody has confirmed: the row offers that, the press carries the ticket, and then it offers Run', async () => {
+    await answer('POST', '/mcp', new URLSearchParams(), {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'configure_suite', arguments: { project: dir, name: 'fresh', what: 'a suite an agent just wrote down', command: ['sh', '-c', 'exit 0'], dir, agent: 'the test' } },
+    }, null)
+    render(<App />)
+    await greet(here())
+    expect(document.querySelector('[data-run="fresh"]')).toBeNull()
+    expect(document.querySelector('[data-run="unit"]')).toBeTruthy()
+    fireEvent.click(document.querySelector('[data-confirm-command="fresh"]') as HTMLElement)
+    await settle(60)
+    expect(server.asked.find((one) => one.path === '/api/confirm')).toEqual({ method: 'POST', path: '/api/confirm', ticket: TICKET })
+    expect(document.querySelector('[data-confirm-command="fresh"]')).toBeNull()
+    expect(document.querySelector('[data-run="fresh"]')).toBeTruthy()
+    /* Confirming started nothing. */
+    expect(server.asked.some((one) => one.path === '/api/run')).toBe(false)
+  })
+
   test('a run pressed on a live page starts, carrying the ticket', async () => {
     render(<App />)
     await greet(here())
@@ -117,6 +142,8 @@ describe('the line about the live stream', () => {
     render(<App />)
     await greet(here())
     expect(Line.latest().url).toContain('/api/events?project=')
+    /* The stream is the page's alone: its ticket rides in the address, where an EventSource can put it. */
+    expect(Line.latest().url).toContain(`ticket=${TICKET}`)
     expect(line()).toBeNull()
     act(() => Line.latest().open())
     await settle()

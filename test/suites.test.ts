@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, expect, test } from 'bun:test'
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -33,7 +33,7 @@ afterAll(() => {
   rmSync(here, { recursive: true, force: true })
 })
 
-const { configure, forget, suite, suites } = await import('../suites/store.ts')
+const { configure, forget, outsideProject, suite, suites } = await import('../suites/store.ts')
 
 const good = () => ({ name: 'unit', what: 'the store refuses a command line', command: ['bun', 'test'], dir: here })
 
@@ -117,5 +117,26 @@ test('every stored suite is a structure, never a string a shell could read', () 
   for (const s of suites(here)) {
     expect(Array.isArray(s.command)).toBe(true)
     expect(s.dir.startsWith('/')).toBe(true)
+  }
+})
+
+test('a directory outside the project is refused, and so is a folder in it that leads out', () => {
+  const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'tests-suites-outside-')))
+  symlinkSync(elsewhere, join(here, 'leads-out'))
+  mkdirSync(join(here, 'packages', 'core'), { recursive: true })
+  try {
+    for (const dir of [elsewhere, tmpdir(), '/', join(here, '..'), join(here, 'leads-out')]) {
+      const out = configure(here, { ...good(), name: 'outside', dir })
+      expect([dir, out.ok]).toEqual([dir, false])
+      if (!out.ok) expect(out.error).toContain('not inside this project')
+    }
+    expect(suite(here, 'outside')).toBeNull()
+    /* The project itself, and a folder inside it, are where a suite runs. */
+    expect(configure(here, { ...good(), name: 'inside', dir: join(here, 'packages', 'core') }).ok).toBe(true)
+    expect(outsideProject(here, here)).toBeNull()
+    expect(outsideProject(here, join(here, 'packages'))).toBeNull()
+    expect(outsideProject(here, `${here}-legacy`)).not.toBeNull()
+  } finally {
+    rmSync(elsewhere, { recursive: true, force: true })
   }
 })

@@ -71,7 +71,7 @@ test('a suite is configured over the MCP door and then appears on the read door'
   expect(wrong(reply)).toBe(false)
   expect(said(reply)).toContain('unit')
 
-  const state = await answer('GET', '/api/state', q, null, null)
+  const state = await answer('GET', '/api/state', q, null, TICKET)
   expect((state?.body as { suites: { name: string }[] }).suites.map((s) => s.name)).toEqual(['unit'])
 })
 
@@ -89,8 +89,44 @@ test('a command line over MCP is refused as a tool error, with a sentence', asyn
 test('a run without the ticket is refused, and no process is started', async () => {
   const reply = await answer('POST', '/api/run', q, { project: here, suite: 'unit' }, 'not-the-ticket')
   expect(reply?.status).toBe(403)
-  const state = await answer('GET', '/api/state', q, null, null)
+  const state = await answer('GET', '/api/state', q, null, TICKET)
   expect((state?.body as { active: unknown[] }).active).toHaveLength(0)
+})
+
+const listedNow = async () =>
+  ((await answer('GET', '/api/state', q, null, TICKET))?.body as { suites: { name: string; confirmed: boolean; fingerprint: string }[] }).suites
+const unit = async () => (await listedNow()).find((one) => one.name === 'unit')!
+
+test('a suite just configured is not confirmed, and is not run: both doors say it awaits that in the page', async () => {
+  expect(await unit()).toMatchObject({ confirmed: false, fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/) })
+  const how = said(await call('how_tested'))
+  expect(how).toContain('NOT CONFIRMED')
+  const agent = await call('run_tests', { suite: 'unit', waitMs: 0 })
+  expect(wrong(agent)).toBe(true)
+  expect(said(agent)).toContain('awaits confirmation in the Tests page')
+  const page = await answer('POST', '/api/run', q, { project: here, suite: 'unit' }, TICKET)
+  expect(page?.status).toBe(409)
+  expect((page?.body as { error: string }).error).toContain('awaits confirmation in the Tests page')
+  expect(((await answer('GET', '/api/state', q, null, TICKET))?.body as { active: unknown[] }).active).toHaveLength(0)
+})
+
+test('only this app’s own page confirms a command, and only the command it drew', async () => {
+  const { fingerprint } = await unit()
+  for (const ticket of [null, 'not-the-ticket']) {
+    expect((await answer('POST', '/api/confirm', q, { project: here, suite: 'unit', fingerprint }, ticket))?.status).toBe(403)
+  }
+  /* There is no tool for it either: an agent cannot confirm what it configured. */
+  expect(said(await call('confirm_suite', { suite: 'unit', fingerprint }))).toContain('no tool')
+  expect((await answer('POST', '/api/confirm', q, { project: here, suite: 'unit', fingerprint: 'f'.repeat(64) }, TICKET))?.status).toBe(409)
+  expect((await answer('POST', '/api/confirm', q, { project: here, suite: 'unit' }, TICKET))?.status).toBe(409)
+  expect((await answer('POST', '/api/confirm', q, { project: here, suite: 'nobody', fingerprint }, TICKET))?.status).toBe(404)
+  expect((await answer('POST', '/api/confirm', q, { suite: 'unit', fingerprint }, TICKET))?.status).toBe(400)
+  expect((await unit()).confirmed).toBe(false)
+
+  const reply = await answer('POST', '/api/confirm', q, { project: here, suite: 'unit', fingerprint }, TICKET)
+  expect(reply?.status).toBe(200)
+  expect((await unit()).confirmed).toBe(true)
+  expect(said(await call('how_tested'))).not.toContain('NOT CONFIRMED')
 })
 
 test('a run with the ticket starts, and cannot name a command', async () => {
@@ -118,7 +154,7 @@ test('a run naming a suite nobody configured is refused with the names that exis
 })
 
 test('a reference nothing has been run against comes back as a standing, not as absence', async () => {
-  const reply = await answer('GET', '/api/standings', new URLSearchParams({ refs: 'gh#404' }), null, null)
+  const reply = await answer('GET', '/api/standings', new URLSearchParams({ refs: 'gh#404' }), null, TICKET)
   const standings = (reply?.body as { standings: { ref: string; runs: unknown[] }[] }).standings
   /* It must never be quietly left out. A missing row looks exactly like a row
      that was never meant to be there. */
@@ -133,8 +169,34 @@ test('and it is said in words, as three different things', () => {
   expect(words).toContain('not a pass and not a failure')
 })
 
+test('the page’s reads and its stream answer only this app’s own page', async () => {
+  const { stream } = await import('../doors.ts')
+  const reads: [string, URLSearchParams][] = [
+    ['/api/state', q],
+    ['/api/standings', new URLSearchParams({ project: here, refs: '!7' })],
+    ['/api/run', new URLSearchParams({ project: here, id: 'x' })],
+  ]
+  for (const [path, query] of reads) {
+    for (const carried of [null, 'not-the-ticket']) {
+      const reply = await answer('GET', path, query, null, carried)
+      expect([path, reply?.status]).toEqual([path, 403])
+      expect((reply?.body as { refused?: string }).refused).toBe('ticket')
+    }
+    expect([path, (await answer('GET', path, query, null, TICKET))?.status]).not.toEqual([path, 403])
+  }
+  for (const query of [q, new URLSearchParams({ project: here, ticket: 'not-the-ticket' })]) {
+    const refused = stream('GET', '/api/events', query, () => {})
+    expect(refused && 'reply' in refused && refused.reply.status).toBe(403)
+  }
+  /* In the address, where an EventSource can put it, or in the header. */
+  for (const opened of [stream('GET', '/api/events', new URLSearchParams({ project: here, ticket: TICKET }), () => {}), stream('GET', '/api/events', q, () => {}, TICKET)]) {
+    expect(opened && 'close' in opened).toBe(true)
+    if (opened && 'close' in opened) opened.close()
+  }
+})
+
 test('an unknown path under /api is refused here rather than handed to Vite', async () => {
-  const reply = await answer('GET', '/api/whatever', q, null, null)
+  const reply = await answer('GET', '/api/whatever', q, null, TICKET)
   expect(reply?.status).toBe(404)
   /* And anything outside `/api` is not ours at all — `null` is what lets the
      page, the client modules and Vite's hot-reload socket keep working. */
@@ -152,7 +214,7 @@ test('the MCP door is deliberately above the ticket check', async () => {
 })
 
 test('with no project the read door says "nowhere" rather than "nothing configured"', async () => {
-  const reply = await answer('GET', '/api/state', new URLSearchParams(), null, null)
+  const reply = await answer('GET', '/api/state', new URLSearchParams(), null, TICKET)
   expect(reply?.body).toMatchObject({ ok: true, nowhere: true, suites: [], refs: [] })
 })
 
@@ -172,4 +234,54 @@ test('a run from the page with no project is refused', async () => {
   const reply = await answer('POST', '/api/run', q, { suite: 'unit' }, TICKET)
   expect(reply?.status).toBe(409)
   expect((reply?.body as { error: string }).error).toContain('no project is open')
+})
+
+test('a suite whose command changes is unconfirmed again, and is told so when it is configured', async () => {
+  const changed = await call('configure_suite', {
+    name: 'unit',
+    what: 'the doors refuse a run without a ticket',
+    command: ['sh', '-c', 'exit 3'],
+    dir: here,
+  })
+  expect(wrong(changed)).toBe(false)
+  expect(said(changed)).toContain('it will not until a person confirms it')
+  expect((await unit()).confirmed).toBe(false)
+  const agent = await call('run_tests', { suite: 'unit', waitMs: 0 })
+  expect(wrong(agent)).toBe(true)
+  expect(said(agent)).toContain('awaits confirmation')
+  expect((await answer('POST', '/api/run', q, { project: here, suite: 'unit' }, TICKET))?.status).toBe(409)
+  /* Written back exactly as a person confirmed it, it is the command they said yes to. */
+  const back = await call('configure_suite', {
+    name: 'unit',
+    what: 'the doors refuse a run without a ticket',
+    command: ['sh', '-c', 'exit 0'],
+    dir: here,
+  })
+  expect(said(back)).toContain('as a person confirmed them')
+  expect((await unit()).confirmed).toBe(true)
+})
+
+test('a suite taken off the list and configured again under its name is a new one', async () => {
+  expect(wrong(await call('forget_suite', { name: 'unit' }))).toBe(false)
+  await call('configure_suite', { name: 'unit', what: 'the doors refuse a run without a ticket', command: ['sh', '-c', 'exit 0'], dir: here })
+  expect((await unit()).confirmed).toBe(false)
+})
+
+test('a directory outside the project is refused when a suite is configured', async () => {
+  const reply = await call('configure_suite', { name: 'afar', what: 'this should never be stored', command: ['sh', '-c', 'exit 0'], dir: tmpdir() })
+  expect(wrong(reply)).toBe(true)
+  expect(said(reply)).toContain('not inside this project')
+  expect((await listedNow()).map((one) => one.name)).not.toContain('afar')
+})
+
+test('every tool says honestly whether it only reads', async () => {
+  const reply = await answer('POST', '/mcp', q, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
+  const tools = (reply?.body as { result: { tools: { name: string; annotations?: Record<string, boolean> }[] } }).result.tools
+  const hint = (name: string) => tools.find((one) => one.name === name)?.annotations
+  expect(hint('how_tested')).toMatchObject({ readOnlyHint: true })
+  expect(hint('test_runs')).toMatchObject({ readOnlyHint: true })
+  expect(hint('configure_suite')).toMatchObject({ readOnlyHint: false, destructiveHint: true })
+  expect(hint('forget_suite')).toMatchObject({ readOnlyHint: false, destructiveHint: true })
+  expect(hint('run_tests')).toMatchObject({ readOnlyHint: false, destructiveHint: true, openWorldHint: true })
+  expect(hint('stop_run')).toMatchObject({ readOnlyHint: false })
 })
