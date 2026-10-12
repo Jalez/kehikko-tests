@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { Cover, coverFor, useServerStanding, type CoverState } from 'kehikot-module-protocol/client/react'
+import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'kehikot-module-protocol/client/react'
 
 import { ID } from '../manifest.ts'
 /* `ago` comes from its own file and `Standing` is a TYPE. That split is
@@ -11,6 +11,7 @@ import { ago } from '../runs/ago.ts'
 import type { Standing } from '../runs/store.ts'
 
 import { Button } from '@/components/ui/button.tsx'
+import { NOUN, anchorOf, inHand, resting } from '@/focus.ts'
 import { kinds, type Kind } from '@/live/kind.ts'
 import type { Listed } from '../suites/store.ts'
 import { confirm as confirmSuite, run as startRun, standings, stop as stopRun, type Live } from '@/store/ask.ts'
@@ -130,7 +131,7 @@ export function App() {
     answer(true, '')
   }, [])
 
-  const { sight, where, selection, project, epic, resize } = useKehikot(ID, onGoto)
+  const { sight, where, selection, project, epic, parts, resize } = useKehikot(ID, onGoto)
 
   /* After the host, because which store is read depends on which project
      the host named: suites and runs live inside it, at `.kehikot/tests/`. */
@@ -245,6 +246,22 @@ export function App() {
   const cover: CoverState | null = coverFor({ where, projectPath: project, server }) ?? (!state && !refused ? 'loading' : null)
 
   const suites = state?.suites ?? []
+
+  /*
+   * What the picked parts of the epic leave in front of the person. The rule is the protocol's;
+   * `focus.ts` says what each thing here is tied to.
+   *
+   * The cards are the references somebody selected, on the canvas or here, and a selection is in
+   * hand: every one of them is kept whatever is picked. The resting page — the references this
+   * project has runs for, its suites, a run going for nothing in particular — is narrowed: with
+   * parts picked it is the references a picked part lists, and a run that is going.
+   */
+  const focus = useFocus({ parts, epic, projectPath: project })
+  const cards = focus.narrow(standing, anchorOf, { noun: NOUN, keep: (one) => refs.includes(one.ref) }).shown
+  const rest = focus.narrow(resting(state && !state.nowhere ? state.refs : [], state && !state.nowhere ? suites : [], live), anchorOf, { noun: NOUN, keep: inHand })
+  const restRefs = rest.shown.flatMap((one) => (one.kind === 'ref' ? [one.ref] : []))
+  const restSuites = rest.shown.flatMap((one) => (one.kind === 'suite' ? [one.suite] : []))
+  const restGoing = rest.shown.flatMap((one) => (one.kind === 'going' ? [one.live] : []))
   const busy = live.length
   const slots = state?.slots ?? 0
   /**
@@ -324,14 +341,14 @@ export function App() {
         </div>
       ) : null}
 
-      {standing.length ? (
+      {cards.length ? (
         <>
           <p className={SAID}>
             {selection.length
-              ? `${standing.length === 1 ? 'One reference is' : `${standing.length} references are`} selected on the canvas.`
-              : `Showing ${standing.length === 1 ? 'a reference' : `${standing.length} references`} you picked here. Selecting on a canvas replaces this.`}
+              ? `${cards.length === 1 ? 'One reference is' : `${cards.length} references are`} selected on the canvas.`
+              : `Showing ${cards.length === 1 ? 'a reference' : `${cards.length} references`} you picked here. Selecting on a canvas replaces this.`}
           </p>
-          {standing.map((s) => (
+          {cards.map((s) => (
             <RefCard
               key={s.ref}
               standing={s}
@@ -351,17 +368,20 @@ export function App() {
             />
           ))}
         </>
+      ) : rest.empty ? (
+        /* The pick left nothing of the resting page. One sentence where it was, and nothing else about the pick anywhere. */
+        <p className={SAID} data-none-in-focus>
+          {rest.empty}
+        </p>
       ) : (
         <>
-          <Sightline sight={sight} hasSuites={suites.length > 0} />
+          <Sightline sight={sight} suites={focus.focused && !restSuites.length ? 'unsaid' : suites.length > 0 ? 'some' : 'none'} />
           {/* Runs going with no reference attached: somebody pressed Run on the
               bare list, or an agent ran a suite without saying what for. They are
               drawn rather than hidden, because a process this app started that
               appears nowhere on its own page is the worst thing this page could
               do. */}
-          {live
-            .filter((l) => !l.run.ref)
-            .map((l) => (
+          {restGoing.map((l) => (
               <div className={CARD} key={l.run.id}>
                 <RunLine run={l.run} ago={ago(l.run.startedAt)} />
                 <p className={SAID}>Not run for any particular reference.</p>
@@ -379,7 +399,9 @@ export function App() {
               </div>
             ))}
           <SuiteList
-            state={state}
+            refs={restRefs}
+            /* Under a pick the suites are not drawn, and neither is a card saying none are configured. */
+            suites={state && !state.nowhere && !(focus.focused && !restSuites.length) ? restSuites : null}
             onRun={(suite) => void press(suite, '')}
             onConfirmCommand={(suite) => void confirmCommand(suite, '')}
             trouble={trouble}
@@ -643,20 +665,22 @@ function ConfirmCommand({ suite, onConfirm }: { suite: Listed; onConfirm: () => 
  * be the place a person can read what that is without opening a JSON file.
  */
 function SuiteList({
-  state,
+  refs,
+  suites,
   onRun,
   onConfirmCommand,
   trouble,
   onPick,
 }: {
-  state: ReturnType<typeof useRuns>['state']
+  /** The references something has been run against, as the pick leaves them. */
+  refs: readonly string[]
+  /** The suites to list, or null for no card at all: nothing was read, or they are not drawn under a pick. */
+  suites: readonly Listed[] | null
   onRun: (suite: string) => void
   onConfirmCommand: (suite: Listed) => void
   trouble: Record<string, string>
   onPick: (ref: string) => void
 }) {
-  if (!state || state.nowhere) return null
-  const refs = state.refs.filter(Boolean)
   return (
     <>
       {refs.length ? (
@@ -675,10 +699,11 @@ function SuiteList({
         </div>
       ) : null}
 
+      {suites ? (
       <div className={CARD}>
         <p className="text-[13px] font-semibold">How this project is tested</p>
-        {state.suites.length ? (
-          state.suites.map((s) => (
+        {suites.length ? (
+          suites.map((s) => (
             <div className="flex min-w-0 flex-col gap-1 border-t pt-1.5" key={s.name}>
               <div className="flex min-w-0 flex-col gap-1 @min-[300px]/container:flex-row @min-[300px]/container:items-baseline @min-[300px]/container:justify-between">
                 <span className={NAME}>{s.name}</span>
@@ -703,6 +728,7 @@ function SuiteList({
           </p>
         )}
       </div>
+      ) : null}
     </>
   )
 }
@@ -719,10 +745,13 @@ function SuiteList({
  * whether it can name the kind of a reference. The suites and the runs are this
  * app's own.
  */
-function Sightline({ sight, hasSuites }: { sight: ReturnType<typeof useKehikot>['sight']; hasSuites: boolean }) {
-  const tail = hasSuites
+function Sightline({ sight, suites }: { sight: ReturnType<typeof useKehikot>['sight']; suites: 'some' | 'none' | 'unsaid' }) {
+  /* `unsaid`: the suites are not drawn just now, so the sentence does not point at them. */
+  const tail = suites === 'some'
     ? ' The suites below are this app’s own and run with nothing else here.'
-    : ' Nothing is configured yet either, so there is nothing to run.'
+    : suites === 'none'
+      ? ' Nothing is configured yet either, so there is nothing to run.'
+      : ''
   /* Not greeted yet, and nothing framing the page, are the shared cover's; see `cover` in `App`. */
   if (sight.at === 'listening' || sight.at === 'unhosted') return null
   const said =

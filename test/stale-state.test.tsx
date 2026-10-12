@@ -80,13 +80,16 @@ describe('useKehikot', () => {
 })
 
 /**
- * The parts of an epic picked out in the host's bar, which this page does
- * nothing about and says nothing about (`partless` in the manifest). It used
- * to count the references outside them in a line at the top and mark their
- * cards; what is held now is that a pick changes nothing on the page at all.
+ * The parts of an epic picked out in the host's bar. The page follows them by
+ * the protocol's one rule (`src/focus.ts`): the references a person selected
+ * are in hand and stay, the resting page is narrowed to the references a
+ * picked part lists, and the only thing ever said about a pick is one sentence
+ * where it left nothing.
  */
 describe('the parts of the epic', () => {
   const cards = () => [...document.querySelectorAll('[data-ref]')].map((card) => card.getAttribute('data-ref'))
+  const offered = () => [...document.querySelectorAll('[data-pick]')].map((button) => button.getAttribute('data-pick'))
+  const none = () => document.querySelector('[data-none-in-focus]')?.textContent ?? null
   const about = () =>
     document.querySelector('[data-focus]') !== null ||
     document.querySelector('[data-outside]') !== null ||
@@ -98,7 +101,7 @@ describe('the parts of the epic', () => {
     const before = document.body.innerHTML
     expect(cards()).toEqual(['gh#7', 'gh#10'])
 
-    /* `gh#7` is in no picked part. Its card is drawn as it was, with nothing said about that. */
+    /* `gh#7` is in no picked part. It was selected, so its card is drawn as it was, with nothing said about that. */
     await say(focused(['gh#7', 'gh#10'], [seam(true)]))
     expect(cards()).toEqual(['gh#7', 'gh#10'])
     expect(about()).toBe(false)
@@ -108,11 +111,52 @@ describe('the parts of the epic', () => {
     expect(document.body.innerHTML).toBe(before)
   })
 
-  test('with nothing selected, the references the project has runs for are all offered whatever is picked', async () => {
+  test('with nothing selected, a reference in a picked part is offered and nothing is said about the pick', async () => {
+    render(<App />)
+    await greet(focused([], [part('tests', 'What the tests check', ['gh#7'], true), seam(false)]))
+    expect(offered()).toEqual(['gh#7'])
+    expect(none()).toBeNull()
+    expect(about()).toBe(false)
+  })
+
+  test('a reference in no picked part is not offered: one sentence where the page was, and it is back when nothing is picked', async () => {
     render(<App />)
     await greet(focused([], [seam(true)]))
+    expect(offered()).toEqual([])
+    expect(none()).toBe('No run is in the picked part.')
+    /* The sentence is all there is: no card, no suite list, nothing else about the pick. */
+    expect(document.body.textContent).not.toContain('Nothing has been configured')
+
+    await say(focused([], [seam(true), part('tests', 'What the tests check', [], true)]))
+    expect(none()).toBe('No run is in the picked parts.')
+
+    await say(focused([], [seam(false)]))
+    expect(none()).toBeNull()
+    expect(offered()).toEqual(['gh#7'])
+    expect(document.body.textContent).toContain('Nothing has been configured')
+  })
+
+  test('the same under a host that sends documents with a part and one that sends only files', async () => {
+    render(<App />)
+    await greet(focused([], [{ ...part('tests', 'What the tests check', ['gh#7'], true), documents: ['docs/tests.md'], files: [] }]))
+    expect(offered()).toEqual(['gh#7'])
+    await say(focused([], [{ ...part('tests', 'What the tests check', ['gh#7'], true), files: ['chapters/tests.tex'] }]))
+    expect(offered()).toEqual(['gh#7'])
+    await say(focused([], [{ ...seam(true), files: ['chapters/tests.tex'] }]))
+    expect(offered()).toEqual([])
+  })
+
+  test('a reference opened here is in hand: a pick that does not list it leaves its card', async () => {
+    render(<App />)
+    await greet(focused([], [seam(false)]))
+    await act(async () => (document.querySelector('[data-pick="gh#7"]') as HTMLElement).click())
+    await settle()
+    expect(cards()).toEqual(['gh#7'])
+
+    await say(focused([], [seam(true)]))
+    expect(cards()).toEqual(['gh#7'])
+    expect(none()).toBeNull()
     expect(about()).toBe(false)
-    expect(document.querySelector('[data-pick="gh#7"]')).toBeTruthy()
   })
 })
 

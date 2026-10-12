@@ -74,6 +74,8 @@ export interface Kehikot {
    * canvas is, so a view can drop what it holds for the previous epic.
    */
   epic: string | null
+  /** The parts of the open epic, with which are picked out. None picked is the whole epic. */
+  parts: Host['parts']
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
 }
@@ -92,7 +94,7 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
   /* How many greetings there have been. A greeting always re-asks, whatever the epic: see below. */
   const [greetings, setGreetings] = useState(0)
   const host = useHost(id, { onGoto, onHello: () => setGreetings((n) => n + 1) })
-  const { where, epic, projectPath: project, request, resize, selection } = host
+  const { where, epic, projectPath: project, parts, request, resize, selection } = host
 
   /* The host's answer about ONE epic, or null before there is a question out. */
   const [reading, setReading] = useState<Extract<Sight, { epic: string }> | null>(null)
@@ -162,7 +164,7 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
   }, [where, epic, reading])
 
   return useMemo(
-    () => ({ sight, where, selection, project, epic, resize }),
-    [sight, where, selection, project, epic, resize],
+    () => ({ sight, where, selection, project, epic, parts, resize }),
+    [sight, where, selection, project, epic, parts, resize],
   )
 }
