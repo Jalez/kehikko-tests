@@ -16,6 +16,8 @@ import { kinds, type Kind } from '@/live/kind.ts'
 import type { Listed } from '../suites/store.ts'
 import { confirm as confirmSuite, run as startRun, standings, stop as stopRun, type Live } from '@/store/ask.ts'
 import { useRuns } from '@/store/use-runs.ts'
+import { HeaderFallback } from '@/view/header-fallback.tsx'
+import { headerOf, keyOf } from '@/header.ts'
 import { useKehikot, type GotoHandler } from '@/wire/use-kehikot.ts'
 import { Log } from '@/view/log.tsx'
 import { counted, gloss, RunLine, Verdict } from '@/view/verdict.tsx'
@@ -89,9 +91,33 @@ const NAME = 'font-mono text-xs font-semibold'
 /** A refusal, kept beside whatever caused it. */
 const TROUBLE = 'border-l-2 border-failed pl-1.5 text-[11px] leading-tight text-failed'
 /** A card. `min-w-0` because everything inside it can hold an absolute path. */
+/** No header to carry anything: a card draws every button itself. */
+const NOTHING: ReadonlySet<string> = new Set()
 const CARD = 'flex min-w-0 flex-col gap-1.5 rounded-md border bg-card p-2'
 
+const DRAWN_KEY = 'kehikot.tests.header-drawn'
+
+/** Whether a host has ever pressed a header item on this page's origin: such a host draws the header. */
+function headerDrawn(): boolean {
+  try {
+    return window.localStorage.getItem(DRAWN_KEY) === 'yes'
+  } catch {
+    return false
+  }
+}
+
+function rememberHeaderDrawn(): void {
+  try {
+    window.localStorage.setItem(DRAWN_KEY, 'yes')
+  } catch {
+    /* It is hidden for this page's life all the same. */
+  }
+}
+
 export function App() {
+  /* Counts the presses a host sent: a host that sends one draws the header, and this page need not. */
+  const [pressed, setPressed] = useState(headerDrawn)
+  const pressing = useRef<(press: { item: string; value?: string | boolean }) => string | void | Promise<string | void>>(() => 'Nothing is open here.')
   /**
    * References picked here rather than on a canvas.
    *
@@ -131,7 +157,11 @@ export function App() {
     answer(true, '')
   }, [])
 
-  const { sight, where, selection, project, epic, parts, resize } = useKehikot(ID, onGoto)
+  const { sight, where, selection, project, epic, parts, resize, header } = useKehikot(ID, onGoto, (press) => {
+    rememberHeaderDrawn()
+    setPressed(true)
+    return pressing.current(press)
+  })
 
   /* After the host, because which store is read depends on which project
      the host named: suites and runs live inside it, at `.kehikot/tests/`. */
@@ -284,8 +314,46 @@ export function App() {
    */
   const full = slots > 0 && busy >= slots
 
+  /* ---- The header: what the host draws in the container's own row ------- */
+  const refsDrawn = cards.map((one) => one.ref)
+  const newest = new Map<string, NonNullable<Standing['bySuite'][number]>['verdict']>()
+  for (const card of cards) for (const r of card.bySuite) newest.set(keyOf.run(card.ref, r.suite), r.verdict)
+  if (readable) for (const r of state!.loose) newest.set(keyOf.run('', r.suite), r.verdict)
+  const declared = headerOf({
+    suites: readable ? suites : [],
+    refs: refsDrawn,
+    live: live.map((one) => one.run),
+    newest,
+    slots,
+  })
+  const { offered } = declared
+  /* Declared again when the list is a different list, and never otherwise. */
+  const itemsKey = JSON.stringify(declared.items)
+  useEffect(() => {
+    header(declared.items)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [header, itemsKey])
+  useEffect(() => () => header([]), [header])
+
+  pressing.current = ({ item }) => {
+    const what = declared.by.get(item)
+    if (!what) return `Nothing here is called ${item}.`
+    if (what.kind === 'run') {
+      void press(what.suite, what.ref)
+      return
+    }
+    if (what.kind === 'confirm') {
+      void confirmCommand(what.suite, refsDrawn[0] ?? '')
+      return
+    }
+    return stopRun(what.id).then((answer) => (answer.ok ? undefined : (answer.error ?? 'It could not be stopped.')))
+  }
+  /* Drawn by the page itself where nobody frames it, or no host has pressed one of these items yet. */
+  const fallback = (where !== 'hosted' || !pressed) && declared.items.length > 0
+
   return (
-    <div className="flex flex-col gap-2 p-2" ref={shell}>
+    <div className={`relative flex flex-col gap-2 p-2${fallback ? ' pr-8' : ''}`} ref={shell}>
+      {fallback ? <HeaderFallback items={declared.items} onPress={(p) => void pressing.current(p)} className="absolute top-1 right-1" /> : null}
       {framed ? null : (
         <header className="flex flex-col gap-1">
           <h1 className="text-[13px] font-semibold">Tests</h1>
@@ -358,6 +426,7 @@ export function App() {
             <RefCard
               key={s.ref}
               standing={s}
+              offered={offered}
               kind={kindOf.get(s.ref) ?? null}
               suites={suites}
               live={liveFor(s.ref)}
@@ -392,16 +461,18 @@ export function App() {
                 <RunLine run={l.run} ago={ago(l.run.startedAt)} />
                 <p className={SAID}>Not run for any particular reference.</p>
                 <Log lines={l.lines} dropped={l.dropped} />
-                <Stop
-                  id={l.run.id}
-                  confirming={confirming === l.run.id}
-                  onAsk={() => setConfirming(l.run.id)}
-                  onConfirm={() => {
-                    setConfirming(null)
-                    void stopRun(l.run.id)
-                  }}
-                  onCancel={() => setConfirming(null)}
-                />
+                {offered.has(keyOf.stop(l.run.id)) ? null : (
+                  <Stop
+                    id={l.run.id}
+                    confirming={confirming === l.run.id}
+                    onAsk={() => setConfirming(l.run.id)}
+                    onConfirm={() => {
+                      setConfirming(null)
+                      void stopRun(l.run.id)
+                    }}
+                    onCancel={() => setConfirming(null)}
+                  />
+                )}
               </div>
             ))}
           {/* And how such a run ended, where it was drawn while it was going: the
@@ -423,6 +494,7 @@ export function App() {
             /* The panel is a control and is drawn whatever is picked, with no suites in it as well:
                it is where a person reads how the first one gets configured. */
             suites={readable ? restSuites : null}
+            offered={offered}
             onRun={(suite) => void press(suite, '')}
             onConfirmCommand={(suite) => void confirmCommand(suite, '')}
             trouble={trouble}
@@ -446,6 +518,7 @@ export function App() {
  */
 export function RefCard({
   standing,
+  offered = NOTHING,
   kind,
   suites,
   live,
@@ -458,6 +531,8 @@ export function RefCard({
   onCancel,
 }: {
   standing: Standing
+  /** What the container's header carries (`header.ts`): the card draws a button only for what it does not. */
+  offered?: ReadonlySet<string>
   kind: Kind | null
   /** The configured suites, each with whether a person has confirmed its command here. */
   suites: Listed[]
@@ -520,8 +595,12 @@ export function RefCard({
                   {gone.includes(name) ? <span className={SAID}>no longer configured</span> : null}
                 </div>
                 {gone.includes(name) ? null : awaiting ? (
-                  <ConfirmCommand suite={awaiting} onConfirm={() => onConfirmCommand(awaiting)} />
-                ) : (
+                  offered.has(keyOf.confirm(awaiting.name)) ? (
+                    <span className={SAID}>not confirmed — Run menu</span>
+                  ) : (
+                    <ConfirmCommand suite={awaiting} onConfirm={() => onConfirmCommand(awaiting)} />
+                  )
+                ) : offered.has(keyOf.run(standing.ref, name)) ? null : (
                   <Button
                     variant="outline"
                     size="container"
@@ -546,13 +625,15 @@ export function RefCard({
                       : ` · ${now.run.passed ?? 0} passed, ${now.run.failed ?? 0} failed so far`}
                   </p>
                   <Log lines={now.lines} dropped={now.dropped} />
-                  <Stop
-                    id={now.run.id}
-                    confirming={confirming === now.run.id}
-                    onAsk={() => onStop(now.run.id)}
-                    onConfirm={() => onConfirm(now.run.id)}
-                    onCancel={onCancel}
-                  />
+                  {offered.has(keyOf.stop(now.run.id)) ? null : (
+                    <Stop
+                      id={now.run.id}
+                      confirming={confirming === now.run.id}
+                      onAsk={() => onStop(now.run.id)}
+                      onConfirm={() => onConfirm(now.run.id)}
+                      onCancel={onCancel}
+                    />
+                  )}
                 </>
               ) : run ? (
                 <>
@@ -687,6 +768,7 @@ function ConfirmCommand({ suite, onConfirm }: { suite: Listed; onConfirm: () => 
  */
 function SuiteList({
   refs,
+  offered = NOTHING,
   suites,
   onRun,
   onConfirmCommand,
@@ -695,6 +777,8 @@ function SuiteList({
 }: {
   /** The references something has been run against, as the pick leaves them. */
   refs: readonly string[]
+  /** What the container's header carries (`header.ts`): a row draws a button only for what it does not. */
+  offered?: ReadonlySet<string>
   /** The suites to list, or null for no card at all: nothing was read. */
   suites: readonly Listed[] | null
   onRun: (suite: string) => void
@@ -729,9 +813,13 @@ function SuiteList({
               <div className="flex min-w-0 flex-col gap-1 @min-[300px]/container:flex-row @min-[300px]/container:items-baseline @min-[300px]/container:justify-between">
                 <span className={NAME}>{s.name}</span>
                 {s.confirmed ? (
-                  <Button variant="outline" size="container" className="self-start" onClick={() => onRun(s.name)} data-run={s.name}>
-                    run
-                  </Button>
+                  offered.has(keyOf.run('', s.name)) ? null : (
+                    <Button variant="outline" size="container" className="self-start" onClick={() => onRun(s.name)} data-run={s.name}>
+                      run
+                    </Button>
+                  )
+                ) : offered.has(keyOf.confirm(s.name)) ? (
+                  <span className={SAID}>not confirmed — Run menu</span>
                 ) : (
                   <ConfirmCommand suite={s} onConfirm={() => onConfirmCommand(s)} />
                 )}
