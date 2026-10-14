@@ -238,3 +238,28 @@ describe('the line about the live stream', () => {
     expect(document.body.textContent).toContain('a line the suite printed')
   })
 })
+
+describe('a host with no reading for the epic', () => {
+  test('is one short sentence under the page, which still draws, and not "said no"', async () => {
+    const ids: string[] = []
+    const hear = (event: MessageEvent) => {
+      const m = event.data as { type?: string; id?: string; method?: string } | null
+      if (m?.type === 'kehikot.request' && m.method === 'live.get' && m.id) ids.push(m.id)
+    }
+    window.addEventListener('message', hear)
+    render(<App />)
+    await greet({ ...here(), epic: 'thesis' })
+    expect(ids.length).toBeGreaterThan(0)
+    window.postMessage(
+      { type: 'kehikot.response', protocol: 2, id: ids[0], ok: false, reason: 'failed', error: 'Nothing has been read from the trackers for that epic.' },
+      '*',
+    )
+    await settle()
+    window.removeEventListener('message', hear)
+    const text = document.body.textContent ?? ''
+    expect(text).not.toContain('said no')
+    expect(text).toContain('The host has no reading for thesis yet')
+    /* What does not need the trackers still draws: the suite is there to run. */
+    expect(text).toContain('unit')
+  })
+})
