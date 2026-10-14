@@ -1,3 +1,4 @@
+import { doorContext } from 'kehikot-module-protocol'
 import { establishBuild, mintTicket, refuseTicket, type Reply } from 'kehikot-module-protocol/serve'
 
 import { ID, MANIFEST, VERSION } from './manifest.ts'
@@ -367,8 +368,10 @@ async function mcp(rpc: Rpc): Promise<Reply> {
       /* Every tool but stop_run is about one project's suites and runs, and is
          refused with a sentence when it names none — see `NOWHERE`. stop_run
          takes a run id, which is unique across projects. */
-      const project = name === 'stop_run' ? null : projectIn(args.project)
-      if (name !== 'stop_run' && project === null) return text(refusedProject(args.project), true)
+      /* `project`, or `projectPath` for a caller that has not moved to the one spelling. */
+      const named = doorContext(args).project
+      const project = name === 'stop_run' ? null : projectIn(named)
+      if (name !== 'stop_run' && project === null) return text(refusedProject(named), true)
 
       if (name === 'how_tested') return text(suitesText(project as string))
 

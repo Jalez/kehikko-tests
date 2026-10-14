@@ -41,6 +41,19 @@ afterEach(() => {
 
 const cover = () => document.querySelector('[data-cover]')?.getAttribute('data-cover') ?? null
 const line = () => document.querySelector('[data-stream]')
+
+/**
+ * A control that is the container's header's, as a person finds it: the page draws its own "⋯" menu
+ * where nobody frames it (or no host has pressed an item yet), with the same items behind it.
+ */
+const menuItem = (label: string) => {
+  if (!document.querySelector('[role="menu"]')) fireEvent.click(screen.getByLabelText(/^Menu/))
+  return screen.getByText(label).closest('button') as HTMLElement
+}
+const hasItem = (label: string) => {
+  if (!document.querySelector('[role="menu"]')) fireEvent.click(screen.getByLabelText(/^Menu/))
+  return screen.queryByText(label) !== null
+}
 const here = () => ({ project: 'p', projectPath: dir })
 
 describe('the not-ready moments, each as the one shared cover', () => {
@@ -69,7 +82,8 @@ describe('the not-ready moments, each as the one shared cover', () => {
     await greet(here())
     expect(cover()).toBeNull()
     expect(document.body.textContent).toContain('How this project is tested')
-    expect(document.querySelector('[data-run="unit"]')).toBeTruthy()
+    expect(hasItem('Run unit')).toBe(true)
+    expect(document.querySelector('[data-run="unit"]')).toBeNull()
   })
 
   test('a server that is not answering: the cover, the page still mounted under it, and Try again asks again', async () => {
@@ -84,7 +98,7 @@ describe('the not-ready moments, each as the one shared cover', () => {
     await settle()
     expect(cover()).toBe('down')
     expect(document.body.textContent).toContain('Tests’ own server is not answering.')
-    expect(document.querySelector('[hidden] [data-run="unit"]')).toBeTruthy()
+    expect(hasItem('Run unit')).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     await settle()
     expect(cover()).toBe('down')
@@ -98,7 +112,7 @@ describe('the not-ready moments, each as the one shared cover', () => {
     render(<App />)
     await greet(here())
     restarted = true
-    fireEvent.click(document.querySelector('[data-run="unit"]') as HTMLElement)
+    fireEvent.click(menuItem('Run unit'))
     await settle()
     expect(server.asked.at(-1)).toMatchObject({ method: 'POST', path: '/api/run', ticket: TICKET })
     expect(cover()).toBe('stale')
@@ -114,13 +128,17 @@ describe('the not-ready moments, each as the one shared cover', () => {
     }, null)
     render(<App />)
     await greet(here())
-    expect(document.querySelector('[data-run="fresh"]')).toBeNull()
-    expect(document.querySelector('[data-run="unit"]')).toBeTruthy()
-    fireEvent.click(document.querySelector('[data-confirm-command="fresh"]') as HTMLElement)
+    expect(hasItem('Run fresh')).toBe(false)
+    expect(hasItem('Run unit')).toBe(true)
+    /* The command is read in the page; confirming it is the second of two presses, the host's arm. */
+    expect(document.querySelector('[data-command="fresh"]')?.textContent).toContain('sh -c exit 0')
+    fireEvent.click(menuItem('Confirm command: fresh'))
+    expect(server.asked.some((one) => one.path === '/api/confirm')).toBe(false)
+    fireEvent.click(screen.getByText('Press again to confirm'))
     await settle(60)
     expect(server.asked.find((one) => one.path === '/api/confirm')).toEqual({ method: 'POST', path: '/api/confirm', ticket: TICKET })
-    expect(document.querySelector('[data-confirm-command="fresh"]')).toBeNull()
-    expect(document.querySelector('[data-run="fresh"]')).toBeTruthy()
+    expect(hasItem('Confirm command: fresh')).toBe(false)
+    expect(hasItem('Run fresh')).toBe(true)
     /* Confirming started nothing. */
     expect(server.asked.some((one) => one.path === '/api/run')).toBe(false)
   })
@@ -128,7 +146,7 @@ describe('the not-ready moments, each as the one shared cover', () => {
   test('a run pressed on a live page starts, carrying the ticket', async () => {
     render(<App />)
     await greet(here())
-    fireEvent.click(document.querySelector('[data-run="unit"]') as HTMLElement)
+    fireEvent.click(menuItem('Run unit'))
     await settle(120)
     const wrote = server.asked.find((one) => one.path === '/api/run')
     expect(wrote).toEqual({ method: 'POST', path: '/api/run', ticket: TICKET })
@@ -151,7 +169,7 @@ describe('a run for no reference', () => {
   test('pressed on the bare list, it is on the page after it ends: its result, where the going ones are drawn', async () => {
     render(<App />)
     await greet(here())
-    fireEvent.click(document.querySelector('[data-run="unit"]') as HTMLElement)
+    fireEvent.click(menuItem('Run unit'))
     await settle(200)
     const state = await answer('GET', '/api/state', new URLSearchParams({ project: dir }), null, TICKET)
     const ended = (state?.body as { loose: { id: string; suite: string; verdict: string }[] }).loose
@@ -176,7 +194,7 @@ describe('a run for no reference', () => {
     expect(loose()).toHaveLength(1)
     await say({ ...here(), epic: 'a', parts: [picked] })
     expect(loose()).toEqual([])
-    expect(document.querySelector('[data-run="unit"]')).toBeTruthy()
+    expect(hasItem('Run unit')).toBe(true)
   })
 })
 

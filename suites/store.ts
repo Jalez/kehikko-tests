@@ -383,7 +383,7 @@ export function listed(projectPath: string | null | undefined): Listed[] {
 /** What an agent is told about a suite a person has not confirmed. One sentence, used wherever it is said. */
 export const AWAITS =
   'It awaits confirmation in the Tests page: a person reads the command there and presses “confirm command” in the '
-  + 'suite’s own row, once, and again whenever its command or directory changes.'
+  + 'container’s Run menu, once, and again whenever its command or directory changes.'
 
 /** How a suite is written out anywhere a person reads it — the page, a tool result. */
 export function spell(s: Suite): string {

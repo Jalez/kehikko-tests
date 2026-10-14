@@ -285,3 +285,13 @@ test('every tool says honestly whether it only reads', async () => {
   expect(hint('run_tests')).toMatchObject({ readOnlyHint: false, destructiveHint: true, openWorldHint: true })
   expect(hint('stop_run')).toMatchObject({ readOnlyHint: false })
 })
+
+test('the project may still be named projectPath, as a caller from before the one spelling does', async () => {
+  const named = await answer(
+    'POST', '/mcp', q,
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'how_tested', arguments: { projectPath: here } } },
+    null,
+  )
+  expect(wrong(named)).toBe(false)
+  expect(said(named)).toBe(said(await call('how_tested', {})))
+})

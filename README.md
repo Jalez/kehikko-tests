@@ -102,7 +102,7 @@ is a shell on an HTTP port. Around that:
 - **A person confirms a command before it first runs, and again after its
   command or directory changes.** An agent writes a suite down; it runs once a
   person has read it in this app's page and pressed *confirm command* in the
-  suite's own row. Until then `run_tests`, and the page's own Run, answer that
+  container's Run menu. Until then `run_tests`, and the page's own Run, answer that
   it awaits confirmation in the Tests page. Only the page can confirm, with its
   ticket and the fingerprint of the command it drew.
 - One run at a time per suite, two runs at a time in total, a per-suite timeout
