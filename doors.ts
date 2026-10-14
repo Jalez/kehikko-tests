@@ -522,6 +522,10 @@ export async function answer(
       active: (project === null ? [] : active(project)).map((a) => ({ run: a.run, lines: a.lines, dropped: a.dropped })),
       slots: MAX_LIVE,
       refs: knownRefs(project),
+      /* How the newest run of each suite made for NO reference ended. Such a run is on no
+         reference's card, so without this it would be on the page while it was going and
+         nowhere at all from the moment it had an answer. */
+      loose: standingFor(project, '').bySuite.filter((one) => one.verdict !== 'running'),
       trouble: named ? suiteTrouble(named) : null,
     })
   }

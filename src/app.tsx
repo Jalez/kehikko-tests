@@ -253,15 +253,21 @@ export function App() {
    *
    * The cards are the references somebody selected, on the canvas or here, and a selection is in
    * hand: every one of them is kept whatever is picked. The resting page — the references this
-   * project has runs for, its suites, a run going for nothing in particular — is narrowed: with
-   * parts picked it is the references a picked part lists, and a run that is going.
+   * project has runs for, its suites, a run going for nothing in particular and how the last such
+   * run of a suite ended — is narrowed: with parts picked it is the references a picked part
+   * lists, a run that is going or that ended while this page was open, and the suites' panel.
    */
   const focus = useFocus({ parts, epic, projectPath: project })
   const cards = focus.narrow(standing, anchorOf, { noun: NOUN, keep: (one) => refs.includes(one.ref) }).shown
-  const rest = focus.narrow(resting(state && !state.nowhere ? state.refs : [], state && !state.nowhere ? suites : [], live), anchorOf, { noun: NOUN, keep: inHand })
+  const readable = Boolean(state && !state.nowhere)
+  /* Spelled as a string for the same reason `refs` is: `ended` is a new array on every run that ends. */
+  const freshKey = ended.map((one) => one.id).join(' ')
+  const fresh = useMemo(() => new Set(freshKey ? freshKey.split(' ') : []), [freshKey])
+  const rest = focus.narrow(resting(readable ? state!.refs : [], readable ? suites : [], live, readable ? state!.loose : [], fresh), anchorOf, { noun: NOUN, keep: inHand })
   const restRefs = rest.shown.flatMap((one) => (one.kind === 'ref' ? [one.ref] : []))
   const restSuites = rest.shown.flatMap((one) => (one.kind === 'suite' ? [one.suite] : []))
   const restGoing = rest.shown.flatMap((one) => (one.kind === 'going' ? [one.live] : []))
+  const restEnded = rest.shown.flatMap((one) => (one.kind === 'ended' ? [one.run] : []))
   const busy = live.length
   const slots = state?.slots ?? 0
   /**
@@ -375,7 +381,7 @@ export function App() {
         </p>
       ) : (
         <>
-          <Sightline sight={sight} suites={focus.focused && !restSuites.length ? 'unsaid' : suites.length > 0 ? 'some' : 'none'} />
+          <Sightline sight={sight} suites={suites.length > 0 ? 'some' : 'none'} />
           {/* Runs going with no reference attached: somebody pressed Run on the
               bare list, or an agent ran a suite without saying what for. They are
               drawn rather than hidden, because a process this app started that
@@ -398,10 +404,25 @@ export function App() {
                 />
               </div>
             ))}
+          {/* And how such a run ended, where it was drawn while it was going: the
+              newest of each suite. A run that had an answer and then appeared
+              nowhere reads as a press that did nothing. With no such run there is
+              no card here at all. */}
+          {restEnded.map((run) => (
+            <div className={CARD} key={run.id} data-loose={run.suite}>
+              <RunLine run={run} ago={ago(run.startedAt)} />
+              <p className={SAID}>Not run for any particular reference.</p>
+              {gloss(run) ? <p className={SAID}>{gloss(run)}</p> : null}
+              {run.verdict === 'failed' || run.verdict === 'timeout' || run.verdict === 'crashed' ? (
+                <Log lines={run.tail.slice(-30)} dropped={run.dropped} />
+              ) : null}
+            </div>
+          ))}
           <SuiteList
             refs={restRefs}
-            /* Under a pick the suites are not drawn, and neither is a card saying none are configured. */
-            suites={state && !state.nowhere && !(focus.focused && !restSuites.length) ? restSuites : null}
+            /* The panel is a control and is drawn whatever is picked, with no suites in it as well:
+               it is where a person reads how the first one gets configured. */
+            suites={readable ? restSuites : null}
             onRun={(suite) => void press(suite, '')}
             onConfirmCommand={(suite) => void confirmCommand(suite, '')}
             trouble={trouble}
@@ -674,7 +695,7 @@ function SuiteList({
 }: {
   /** The references something has been run against, as the pick leaves them. */
   refs: readonly string[]
-  /** The suites to list, or null for no card at all: nothing was read, or they are not drawn under a pick. */
+  /** The suites to list, or null for no card at all: nothing was read. */
   suites: readonly Listed[] | null
   onRun: (suite: string) => void
   onConfirmCommand: (suite: Listed) => void
@@ -745,13 +766,10 @@ function SuiteList({
  * whether it can name the kind of a reference. The suites and the runs are this
  * app's own.
  */
-function Sightline({ sight, suites }: { sight: ReturnType<typeof useKehikot>['sight']; suites: 'some' | 'none' | 'unsaid' }) {
-  /* `unsaid`: the suites are not drawn just now, so the sentence does not point at them. */
+function Sightline({ sight, suites }: { sight: ReturnType<typeof useKehikot>['sight']; suites: 'some' | 'none' }) {
   const tail = suites === 'some'
     ? ' The suites below are this app’s own and run with nothing else here.'
-    : suites === 'none'
-      ? ' Nothing is configured yet either, so there is nothing to run.'
-      : ''
+    : ' Nothing is configured yet either, so there is nothing to run.'
   /* Not greeted yet, and nothing framing the page, are the shared cover's; see `cover` in `App`. */
   if (sight.at === 'listening' || sight.at === 'unhosted') return null
   const said =
