@@ -119,16 +119,20 @@ describe('the parts of the epic', () => {
     expect(about()).toBe(false)
   })
 
-  test('a reference in no picked part is not offered: one sentence where the page was, and it is back when nothing is picked', async () => {
+  test('a reference in no picked part is not offered, and it is back when nothing is picked; the panel stays with no suites in it', async () => {
     render(<App />)
     await greet(focused([], [seam(true)]))
     expect(offered()).toEqual([])
-    expect(none()).toBe('No run is in the picked part.')
-    /* The sentence is all there is: no card, no suite list, nothing else about the pick. */
-    expect(document.body.textContent).not.toContain('Nothing has been configured')
+    /* How the project is tested is a control: it is how a person gets a first suite, so it is
+       drawn whatever is picked. While it is, nothing on the page is about the pick. */
+    expect(document.body.textContent).toContain('How this project is tested')
+    expect(document.body.textContent).toContain('Nothing has been configured')
+    expect(none()).toBeNull()
+    expect(about()).toBe(false)
 
     await say(focused([], [seam(true), part('tests', 'What the tests check', [], true)]))
-    expect(none()).toBe('No run is in the picked parts.')
+    expect(document.body.textContent).toContain('Nothing has been configured')
+    expect(about()).toBe(false)
 
     await say(focused([], [seam(false)]))
     expect(none()).toBeNull()

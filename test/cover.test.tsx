@@ -9,7 +9,7 @@ import { App } from '../src/app.tsx'
 import { keepConfirmed } from '../suites/confirmed.ts'
 import { suite } from '../suites/store.ts'
 
-import { Line, greet, install, server, settle, uninstall } from './fakes.ts'
+import { Line, greet, install, say, server, settle, uninstall } from './fakes.ts'
 
 /**
  * The whole page against the real doors: each not-ready moment as the one shared cover, what
@@ -134,6 +134,49 @@ describe('the not-ready moments, each as the one shared cover', () => {
     expect(wrote).toEqual({ method: 'POST', path: '/api/run', ticket: TICKET })
     expect(cover()).toBeNull()
     expect(document.querySelector('.text-failed')?.textContent ?? '').not.toContain('did not come from')
+  })
+})
+
+describe('a run for no reference', () => {
+  const loose = () => [...document.querySelectorAll('[data-loose]')].map((card) => card.textContent ?? '')
+  const picked = { id: 'seam', heading: 'The posting seam', refs: ['gh#10'], picked: true }
+
+  test('nothing has been run: no card, and nothing said about it', async () => {
+    render(<App />)
+    await greet(here())
+    expect(loose()).toEqual([])
+    expect(document.body.textContent).not.toContain('Not run for any particular reference')
+  })
+
+  test('pressed on the bare list, it is on the page after it ends: its result, where the going ones are drawn', async () => {
+    render(<App />)
+    await greet(here())
+    fireEvent.click(document.querySelector('[data-run="unit"]') as HTMLElement)
+    await settle(200)
+    const state = await answer('GET', '/api/state', new URLSearchParams({ project: dir }), null, TICKET)
+    const ended = (state?.body as { loose: { id: string; suite: string; verdict: string }[] }).loose
+    expect(ended.map((one) => [one.suite, one.verdict])).toEqual([['unit', 'passed']])
+    /* The stream is the test's to drive: the run ending is what makes the page read again. */
+    act(() => Line.latest().send('ended', { run: ended[0] }))
+    await settle(130)
+    expect(loose()).toHaveLength(1)
+    expect(loose()[0]).toContain('passed')
+    expect(loose()[0]).toContain('unit')
+    expect(loose()[0]).toContain('Not run for any particular reference.')
+
+    /* A person here watched it: a pick does not take it off the page, and says nothing. */
+    await say({ ...here(), epic: 'a', parts: [picked] })
+    expect(loose()).toHaveLength(1)
+    expect(document.querySelector('[data-none-in-focus]')).toBeNull()
+
+    /* A page opened later draws it with nothing picked, and not under a pick: it is tied to no part. */
+    cleanup()
+    render(<App />)
+    await say({ ...here(), epic: 'a', parts: [{ ...picked, picked: false }] })
+    expect(loose()).toHaveLength(1)
+    await say({ ...here(), epic: 'a', parts: [picked] })
+    expect(loose()).toEqual([])
+    expect(document.querySelector('[data-run="unit"]')).toBeTruthy()
   })
 })
 

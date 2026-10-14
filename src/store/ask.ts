@@ -51,6 +51,8 @@ export interface State {
   active: Live[]
   slots: number
   refs: string[]
+  /** The newest finished run of each suite that was made for no reference. Empty when there is none. */
+  loose: Run[]
   /** A store this app could not read, said in words rather than drawn as empty. */
   trouble: string | null
 }
@@ -67,6 +69,7 @@ export async function state(project: string | null): Promise<State> {
     active: Array.isArray(body.active) ? body.active : [],
     slots: typeof body.slots === 'number' ? body.slots : 0,
     refs: Array.isArray(body.refs) ? body.refs : [],
+    loose: Array.isArray(body.loose) ? body.loose : [],
     trouble: typeof body.trouble === 'string' ? body.trouble : null,
   }
 }
