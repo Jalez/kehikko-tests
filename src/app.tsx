@@ -16,7 +16,7 @@ import { kinds, type Kind } from '@/live/kind.ts'
 import type { Listed } from '../suites/store.ts'
 import { confirm as confirmSuite, run as startRun, standings, stop as stopRun, type Live } from '@/store/ask.ts'
 import { useRuns } from '@/store/use-runs.ts'
-import { HeaderFallback } from '@/view/header-fallback.tsx'
+import { fallbackShows, HeaderFallback, headerDrawn, rememberHeaderDrawn } from '@/view/header-fallback.tsx'
 import { headerOf, keyOf } from '@/header.ts'
 import { useKehikot, type GotoHandler } from '@/wire/use-kehikot.ts'
 import { Log } from '@/view/log.tsx'
@@ -95,25 +95,6 @@ const TROUBLE = 'border-l-2 border-failed pl-1.5 text-[11px] leading-tight text-
 const NOTHING: ReadonlySet<string> = new Set()
 const CARD = 'flex min-w-0 flex-col gap-1.5 rounded-md border bg-card p-2'
 
-const DRAWN_KEY = 'kehikot.tests.header-drawn'
-
-/** Whether a host has ever pressed a header item on this page's origin: such a host draws the header. */
-function headerDrawn(): boolean {
-  try {
-    return window.localStorage.getItem(DRAWN_KEY) === 'yes'
-  } catch {
-    return false
-  }
-}
-
-function rememberHeaderDrawn(): void {
-  try {
-    window.localStorage.setItem(DRAWN_KEY, 'yes')
-  } catch {
-    /* It is hidden for this page's life all the same. */
-  }
-}
-
 export function App() {
   /* Counts the presses a host sent: a host that sends one draws the header, and this page need not. */
   const [pressed, setPressed] = useState(headerDrawn)
@@ -157,7 +138,7 @@ export function App() {
     answer(true, '')
   }, [])
 
-  const { sight, where, selection, project, epic, parts, resize, header } = useKehikot(ID, onGoto, (press) => {
+  const { sight, where, selection, project, epic, parts, resize, header, drawsHeader } = useKehikot(ID, onGoto, (press) => {
     rememberHeaderDrawn()
     setPressed(true)
     return pressing.current(press)
@@ -349,7 +330,7 @@ export function App() {
     return stopRun(what.id).then((answer) => (answer.ok ? undefined : (answer.error ?? 'It could not be stopped.')))
   }
   /* Drawn by the page itself where nobody frames it, or no host has pressed one of these items yet. */
-  const fallback = (where !== 'hosted' || !pressed) && declared.items.length > 0
+  const fallback = fallbackShows(where, drawsHeader, pressed) && declared.items.length > 0
 
   return (
     <div className={`relative flex flex-col gap-2 p-2${fallback ? ' pr-8' : ''}`} ref={shell}>
