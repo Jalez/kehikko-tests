@@ -47,6 +47,16 @@ export function rememberHeaderDrawn(): void {
   }
 }
 
+/**
+ * Whether this page draws its own "⋯": always where nobody frames it; where a
+ * 1.4.0 host has said (`drawsHeader`) that word decides alone; where an older
+ * host says nothing (`null`), until a press from a header-drawing host has arrived.
+ */
+export function fallbackShows(where: string, drawsHeader: boolean | null, pressed: boolean): boolean {
+  if (where !== 'hosted') return true
+  return !(drawsHeader ?? pressed)
+}
+
 type Press = (press: { item: string; value?: string | boolean }) => unknown
 
 const MENUS = [
