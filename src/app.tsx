@@ -352,7 +352,7 @@ export function App() {
   const fallback = (where !== 'hosted' || !pressed) && declared.items.length > 0
 
   return (
-    <div className="relative flex flex-col gap-2 p-2" ref={shell}>
+    <div className={`relative flex flex-col gap-2 p-2${fallback ? ' pr-8' : ''}`} ref={shell}>
       {fallback ? <HeaderFallback items={declared.items} onPress={(p) => void pressing.current(p)} className="absolute top-1 right-1" /> : null}
       {framed ? null : (
         <header className="flex flex-col gap-1">
