@@ -865,10 +865,14 @@ function Sightline({ sight, suites }: { sight: ReturnType<typeof useKehikot>['si
           ? `A host is here and no epic is open, so there is nothing selected to show runs against.${tail}`
           : sight.at === 'asking'
             ? `Asking the host what it last read about ${sight.epic}, to learn what kind of thing each reference is.`
-            : sight.at === 'refused'
-              ? `The host was asked about ${sight.epic} and said no: ${sight.refusal.error} Selected references will be called “reference” rather than named as issues or pull requests; everything else works.${tail}`
-              : sight.at === 'unread'
-                ? `The host has no reading for ${sight.epic}, so a selected reference will be called “reference” rather than named as an issue or a pull request. Everything else works.${tail}`
+            : sight.at === 'refused' || sight.at === 'unread'
+              /* A host with no reading of the epic is an expected state, one short sentence, not "said no".
+                 The host's own words, when it gave them, ride on the title. */
+              ? `The host has no reading for ${sight.epic} yet, so a selected reference will be called “reference” rather than named as an issue or a pull request. Everything else works.${tail}`
                 : `Nothing is selected on the canvas. Pick a reference and this container shows what has been run against it.${tail}`
-  return <p className={SAID}>{said}</p>
+  return (
+    <p className={SAID} title={sight.at === 'refused' ? sight.refusal.error : undefined}>
+      {said}
+    </p>
+  )
 }
