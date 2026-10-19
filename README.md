@@ -67,9 +67,14 @@ Whether `.kehikot/` is committed is the host's per-project setting.
 One thing is not the project's and is not kept in it: which commands a person
 has confirmed (see below). That is one person's word about one machine, so it is
 machine state — `module-state/tests/confirmed.json` in this machine's Kehikot
-folder, the one the module registry is in — keyed by the project's real path. A
-project that is copied, moved or cloned is unconfirmed where it lands, whatever
-its files say. `TESTS_CONFIRMED_DIR` moves it, which is what the tests use it
+folder, the one the module registry is in — keyed by the project's permanent id
+(`.kehikot/project.json`, which the host writes; protocol 2.1.0) and, while the
+host has given it none, by its real path. A project that is renamed or moved
+keeps its confirmations; one that is copied or cloned is unconfirmed where it
+lands (a clone never carries the id, and a host gives a copy carrying it a fresh
+one). Confirmations kept under the project's current path are moved to its id
+the first time it has one; ones kept under a path it no longer has stay there,
+and a person confirms again. `TESTS_CONFIRMED_DIR` moves it, which is what the tests use it
 for; a server started with `KEHIKOT_MODULES_DIR` set keeps it beside that
 registry.
 
@@ -97,8 +102,14 @@ is a shell on an HTTP port. Around that:
   shell there is nothing to interpret a `;` or a `$(…)`, so nothing here has to
   sanitise them — and nothing here should ever start interpolating near a
   command.
-- Directories are absolute, are the project folder or a folder inside it as the
-  disk resolves it, and are checked at configuration time and again at run time.
+- Directories are given absolute, are the project folder or a folder inside it
+  as the disk resolves it, and are checked at configuration time and again at
+  run time. They are STORED relative to the project folder (`""` for the folder
+  itself), in suites and runs alike, so a project that is renamed or moved keeps
+  working. One written absolute before that is made relative when read: when it
+  is inside the project, directly; when the project was renamed or moved since,
+  by finding the same folder below the project as it is now. One that cannot be
+  found is kept as written and refused with a sentence saying why.
 - **A person confirms a command before it first runs, and again after its
   command or directory changes.** An agent writes a suite down; it runs once a
   person has read it in this app's page and pressed *confirm command* in the

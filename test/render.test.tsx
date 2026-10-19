@@ -47,6 +47,7 @@ const standing = (runs: Run[]): Standing => ({
 const listed = (name: string, confirmed = true): Listed => ({
   name,
   what: 'something worth proving',
+  rel: '',
   command: ['bun', 'test'],
   dir: '/tmp/project',
   timeoutMs: 120_000,

@@ -89,7 +89,7 @@ test('a change to the command or the directory is a different suite to confirm',
   mkdirSync(join(here, 'sub'), { recursive: true })
   const unit = suite(here, 'unit')!
   expect(isConfirmed(here, { ...unit, command: ['bun', 'test', '--bail'] })).toBe(false)
-  expect(isConfirmed(here, { ...unit, dir: join(here, 'sub') })).toBe(false)
+  expect(isConfirmed(here, { ...unit, dir: join(here, 'sub'), rel: 'sub' })).toBe(false)
   /* What it proves, how long it may take and who wrote it down are not what runs. */
   expect(isConfirmed(here, { ...unit, what: 'said another way', timeoutMs: 1_000, by: 'somebody else' } as typeof unit)).toBe(true)
 })

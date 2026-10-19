@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 
-import { adopt, claim, makeDir, place } from '../store.ts'
+import { adopt, claim, makeDir, place, placedDir, storedDir } from '../store.ts'
 
 /**
  * What was run, against what, and how it went.
@@ -82,6 +83,14 @@ const runSchema = z.object({
   by: z.string(),
   /** What was actually executed, copied at start. */
   command: z.array(z.string()).default([]),
+  /**
+   * Where, kept RELATIVE to the project folder (`''` for the folder itself) so
+   * the history survives the project being renamed or moved, and handed out
+   * absolute, under the project as it is now. One written absolute before that
+   * is made relative when it can be placed (`storedDir`), and kept as written
+   * when it cannot. The oldest records carry `''` from before this field had a
+   * meaning, and read as the project folder.
+   */
   dir: z.string().default(''),
 })
 export type Run = z.infer<typeof runSchema>
@@ -130,13 +139,26 @@ function where(projectPath: string | null | undefined) {
   return at
 }
 
+/** A run's directory as it is kept: relative when it can be placed in the project, as written when it cannot. */
+const kept = (root: string, dir: string) => (isAbsolute(dir) ? (storedDir(root, dir) ?? dir) : dir)
+
+/** A kept run as it is handed out: its directory under the project as it is now. */
+const outward = (root: string, r: Run): Run => (isAbsolute(r.dir) ? r : { ...r, dir: placedDir(root, r.dir) })
+
+function rootOf(projectPath: string | null | undefined): string | null {
+  const at = where(projectPath)
+  return 'path' in at ? at.root : null
+}
+
 function read(projectPath: string | null | undefined): Store {
   const at = where(projectPath)
   if (!('path' in at)) return empty()
   const path = at.path
   if (!existsSync(path)) return empty()
   try {
-    return storeSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+    const store = storeSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+    for (const list of Object.values(store.runs)) for (const r of list) r.dir = kept(at.root, r.dir)
+    return store
   } catch {
     /* Same judgement as the suites store, for the weaker of the two reasons: a
        lost run history is a nuisance, and writing over a file that could not be
@@ -172,8 +194,10 @@ function save(projectPath: string | null | undefined, store: Store): void {
 
 /** Every run recorded against one reference in this project, newest first. */
 export function runsFor(projectPath: string | null | undefined, ref: string): Run[] {
+  const root = rootOf(projectPath)
+  if (root === null) return []
   const all = read(projectPath).runs
-  return [...(Object.hasOwn(all, ref) ? (all[ref] ?? []) : [])].reverse()
+  return [...(Object.hasOwn(all, ref) ? (all[ref] ?? []) : [])].reverse().map((r) => outward(root, r))
 }
 
 /** Every reference anything has been run against in this project. */
@@ -183,9 +207,11 @@ export function knownRefs(projectPath: string | null | undefined): string[] {
 
 /** One run wherever it is filed in this project, for a stream that has only an id. */
 export function run(projectPath: string | null | undefined, id: string): Run | null {
+  const root = rootOf(projectPath)
+  if (root === null) return null
   for (const list of Object.values(read(projectPath).runs)) {
     const found = list.find((r) => r.id === id)
-    if (found) return found
+    if (found) return outward(root, found)
   }
   return null
 }
@@ -202,7 +228,10 @@ export function run(projectPath: string | null | undefined, id: string): Run | n
  */
 export function record(projectPath: string | null | undefined, run: Run): void {
   if (trouble(projectPath)) return
+  const root = rootOf(projectPath)
+  if (root === null) return
   const store = read(projectPath)
+  run = { ...run, dir: kept(root, run.dir) }
   const list = store.runs[run.ref] ?? []
   const at = list.findIndex((r) => r.id === run.id)
   if (at >= 0) list[at] = run

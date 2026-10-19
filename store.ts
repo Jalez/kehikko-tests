@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, join } from 'node:path'
+import { basename, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path'
 
-import { KEHIKOT_DIR, moduleDir, moduleFile, within } from 'kehikot-module-protocol'
+import { KEHIKOT_DIR, moduleDir, moduleFile, projectFile, readProjectFile, within } from 'kehikot-module-protocol'
 
 import { ID } from './manifest.ts'
 
@@ -257,4 +257,88 @@ export function adopt(
     /* The project's copy landed. A legacy file that could not be trimmed is
        harmless: this project has its own file now and will not adopt again. */
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * A project that is renamed or moved: its id, and directories kept relative
+ * ------------------------------------------------------------------ */
+
+/**
+ * The project's permanent id, from `<root>/.kehikot/project.json` (protocol
+ * 2.1.0), or null when the host has not given it one. Read from the file
+ * because this server is handed a path — by the page and by an agent's MCP
+ * call alike — and the file is in it. The host writes it; this module only reads.
+ */
+export function projectIdOf(root: string): string | null {
+  const file = projectFile(root)
+  if (file === null) return null
+  try {
+    return readProjectFile(JSON.parse(readFileSync(file, 'utf8')))?.id ?? null
+  } catch {
+    return null
+  }
+}
+
+/** A directory as a person reads it and as `spawn` is handed it: the stored relative one under the project as it is now. */
+export function placedDir(root: string, rel: string): string {
+  return rel ? join(root, rel) : root
+}
+
+/**
+ * A directory as it is STORED: relative to the project folder, `''` for the
+ * folder itself, so a project that is renamed or moved keeps its suites and
+ * runs. `null` when it cannot be placed in this project.
+ *
+ * - A relative one is kept, normalised, unless it climbs out (`..`).
+ * - An absolute one inside the project — as it is spelled or as the disk
+ *   resolves it — is made relative. That is every directory written before
+ *   directories were kept relative, while the project is where it was.
+ * - An absolute one that is NOT inside it was written before the project was
+ *   renamed or moved. Its old folder is not known, so it is found: the
+ *   shallowest folder on that path that is gone (or is itself a project
+ *   folder, as a copy's original is) is taken for where the project was, and
+ *   what came below it is looked for under the project now. Failing that, a
+ *   folder on that path with the project's current name is tried (the project
+ *   moved without being renamed). The tail is adopted only when it is a
+ *   directory here; otherwise `null`, and the caller keeps the old path and says why.
+ */
+export function storedDir(root: string, dir: string): string | null {
+  if (!dir) return ''
+  if (!isAbsolute(dir)) {
+    const rel = normalize(dir)
+    if (rel === '.' || rel === `.${sep}`) return ''
+    if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null
+    return rel.replace(/\/$/, '')
+  }
+  const at = normalize(dir)
+  if (within(root, at)) return relative(root, at)
+  try {
+    const real = realpathSync(at)
+    if (within(root, real)) return relative(root, real)
+  } catch {
+    /* Gone: it may have moved with the project, below. */
+  }
+  const parts = at.split(sep).filter(Boolean)
+  const tailFrom = (k: number) => parts.slice(k).join(sep)
+  const isDir = (path: string) => {
+    try {
+      return statSync(path).isDirectory()
+    } catch {
+      return false
+    }
+  }
+  const tried: number[] = []
+  for (let k = 1; k <= parts.length; k += 1) {
+    const was = `${sep}${parts.slice(0, k).join(sep)}`
+    if (!existsSync(was) || existsSync(join(was, KEHIKOT_DIR))) {
+      tried.push(k)
+      break
+    }
+  }
+  for (let k = 1; k <= parts.length; k += 1) if (parts[k - 1] === basename(root) && !tried.includes(k)) tried.push(k)
+  for (const k of tried) {
+    const tail = tailFrom(k)
+    if (isDir(placedDir(root, tail))) return tail
+  }
+  return null
 }

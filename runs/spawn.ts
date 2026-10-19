@@ -3,7 +3,7 @@ import { existsSync, statSync } from 'node:fs'
 
 import { NOWHERE, projectOf } from '../store.ts'
 import { isConfirmed } from '../suites/confirmed.ts'
-import { AWAITS, outsideProject, suite as findSuite, suites } from '../suites/store.ts'
+import { AWAITS, outsideProject, suite as findSuite, suites, unplaced } from '../suites/store.ts'
 import { fold, NOTHING, type Counts } from './counts.ts'
 import { KEEP_LINES, record, type Run, type Verdict } from './store.ts'
 
@@ -196,6 +196,10 @@ export function begin(input: { project: string | null | undefined; suite: string
         : `there is no suite called "${name}", and in fact nothing has been configured in this project yet. Say how it is tested first, with configure_suite over this app's MCP door.`,
     }
   }
+
+  /* A directory written absolute before the project was renamed or moved, gone, and not found inside it now. */
+  const lost = existsSync(found.dir) ? null : unplaced(project, found)
+  if (lost) return { ok: false, error: `nothing was started. ${lost}` }
 
   /* Where it runs, judged again now: the file the suite is kept in can be edited, or can have
      arrived with the project. */

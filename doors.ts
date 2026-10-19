@@ -1,10 +1,12 @@
+import { existsSync } from 'node:fs'
+
 import { doorContext } from 'kehikot-module-protocol'
 import { establishBuild, mintTicket, refuseTicket, type Reply } from 'kehikot-module-protocol/serve'
 
 import { ID, MANIFEST, VERSION } from './manifest.ts'
 import { NOWHERE, projectOf } from './store.ts'
 import { isConfirmed, keepConfirmed, fingerprint } from './suites/confirmed.ts'
-import { AWAITS, BOUNDS, configure, forget, listed, outsideProject, spell, suite as findSuite, suites, trouble as suiteTrouble } from './suites/store.ts'
+import { AWAITS, BOUNDS, configure, forget, listed, outsideProject, spell, suite as findSuite, suites, trouble as suiteTrouble, unplaced } from './suites/store.ts'
 import { active, begin, end, isLive, MAX_LIVE, runningSuite, suitesChanged, waitFor } from './runs/spawn.ts'
 import { ago, knownRefs, run as findRun, standingFor, sweep, type Run } from './runs/store.ts'
 import { attach } from './runs/stream.ts'
@@ -594,6 +596,8 @@ export async function answer(
         suitesChanged(project)
         return bad(`"${name}" changed since this page drew it, so nothing was confirmed. Read the command as it is now and confirm that.`, 409)
       }
+      const lost = existsSync(found.dir) ? null : unplaced(project, found)
+      if (lost) return bad(`"${name}" cannot be confirmed. ${lost}`, 409)
       const outside = outsideProject(project, found.dir)
       if (outside) return bad(`"${name}" cannot be confirmed. ${outside}`, 409)
       keepConfirmed(project, found)
