@@ -145,7 +145,7 @@ export const BUILD = establishBuild({ version: VERSION, dir: import.meta.dirname
 
 /** What the page is called when it starts a run, and what an agent is called when it does not say. */
 const OWNER = 'the owner, on this app’s own page'
-const AGENT = process.env.TESTS_AGENT ?? process.env.KEHIKOT_AGENT ?? process.env.ROADMAP_AGENT ?? 'an agent'
+const AGENT = process.env.TESTS_AGENT ?? process.env.KEHIKOT_AGENT ?? 'an agent'
 
 /* ------------------------------------------------------------------ *
  * How a run reads, in words
