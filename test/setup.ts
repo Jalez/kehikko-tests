@@ -20,3 +20,10 @@ GlobalRegistrator.register()
  * write a confirmation where the real app would read it.
  */
 process.env.TESTS_CONFIRMED_DIR = mkdtempSync(join(tmpdir(), 'tests-confirmed-'))
+
+/**
+ * The host, for the tests that are not about it: it holds every folder it is asked about. A test of what
+ * the host says sets its own (`test/host.ts`) and puts this back.
+ */
+const { holdsEveryFolder } = await import('./host.ts')
+holdsEveryFolder()

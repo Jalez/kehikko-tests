@@ -1,3 +1,4 @@
+import { keyOf } from '../store.ts'
 import { active, MAX_LIVE, subscribe } from './spawn.ts'
 
 /**
@@ -77,8 +78,11 @@ export function attach(sink: Sink, project: string | null): () => void {
     slots: MAX_LIVE,
   })
 
-  const off = subscribe((event) => {
-    if (project !== null && event.project === project) sink.write(event.kind, event)
+  /* Matched by the project's key, its id when it has one: a run that began before the folder was
+     renamed carries the old path, and is still this page's. */
+  const key = project === null ? null : keyOf(project)
+  const off = subscribe((event, eventKey) => {
+    if (key !== null && eventKey === key) sink.write(event.kind, event)
   })
   const beat = setInterval(() => sink.write('beat', { at: Date.now() }), BEAT_MS)
 

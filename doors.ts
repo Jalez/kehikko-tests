@@ -1,13 +1,14 @@
 import { existsSync } from 'node:fs'
 
-import { doorContext } from 'kehikot-module-protocol'
+import { DOOR_PROJECT_SAYS, doorContext } from 'kehikot-module-protocol'
 import { establishBuild, mintTicket, refuseTicket, type Reply } from 'kehikot-module-protocol/serve'
 
+import { resolveFolder, setHostResolve } from './host-ask.ts'
 import { ID, MANIFEST, VERSION } from './manifest.ts'
 import { NOWHERE, projectOf } from './store.ts'
 import { isConfirmed, keepConfirmed, fingerprint } from './suites/confirmed.ts'
 import { AWAITS, BOUNDS, configure, forget, listed, outsideProject, spell, suite as findSuite, suites, trouble as suiteTrouble, unplaced } from './suites/store.ts'
-import { active, begin, end, isLive, MAX_LIVE, runningSuite, suitesChanged, waitFor } from './runs/spawn.ts'
+import { active, begin, end, follow, isLive, MAX_LIVE, runningSuite, suitesChanged, waitFor } from './runs/spawn.ts'
 import { ago, knownRefs, run as findRun, standingFor, sweep, type Run } from './runs/store.ts'
 import { attach } from './runs/stream.ts'
 
@@ -101,26 +102,35 @@ const MAX_WAIT_MS = 600_000
 /** As long as a path may be, matching the protocol's own `LIMITS.PATH`. */
 const MAX_PROJECT = 4096
 
+/** The project a caller named, as the host has it: a path to work on, or the sentence that says why not. */
+type Project = { project: string; movedFrom: string | null } | { project: null; why: string }
+
 /**
- * The project a caller named, resolved, with this process's orphaned runs in it
- * swept — or null for none.
+ * The project a caller named, asked of the host (protocol 2.3.0, `resolveDoorProject`) and resolved,
+ * with this process's orphaned runs in it swept — or why there is none.
  *
- * Every door that reads a project goes through here, so `sweep` happens on the
- * read that would otherwise have drawn an orphan as running. See `sweep` in
- * `runs/store.ts` for why it is per project and not once at startup.
+ * Every door that reads or writes a project goes through here, and works on the path it gives back,
+ * never on the one it was handed: a folder that was a project's and is now another's, or nobody's, is
+ * refused, and one that was renamed is followed to where the project is now, once the host has
+ * checked it is the same project. With no host there is nothing to follow and nothing to trust, so
+ * it is a refusal. `sweep` happens on the read that would otherwise have drawn an orphan as
+ * running; see `sweep` in `runs/store.ts` for why it is per project and not once at startup.
+ * Runs going in the project are told where it is now (`follow`), so one that was started before a
+ * rename is recorded in the renamed folder.
  */
-function projectIn(value: unknown): string | null {
-  const project = projectOf(str(value, MAX_PROJECT))
-  if (project !== null) sweep(project, isLive)
-  return project
+async function projectIn(value: unknown): Promise<Project> {
+  const named = str(value, MAX_PROJECT)
+  if (!named) return { project: null, why: NOWHERE }
+  const at = await resolveFolder(named)
+  if (!at.ok) return { project: null, why: at.why }
+  const project = projectOf(at.path)
+  if (project === null) return { project: null, why: suiteTrouble(at.path, true) ?? NOWHERE }
+  sweep(project, isLive)
+  follow(project)
+  return { project, movedFrom: at.movedFrom ?? null }
 }
 
-/** Why a named project cannot be used, for a door that has to say so. */
-function refusedProject(value: unknown): string {
-  const named = str(value, MAX_PROJECT)
-  if (!named) return NOWHERE
-  return suiteTrouble(named, true) ?? NOWHERE
-}
+export { setHostResolve }
 
 function str(value: unknown, max: number): string {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value).slice(0, max)
@@ -371,11 +381,14 @@ async function mcp(rpc: Rpc): Promise<Reply> {
          refused with a sentence when it names none — see `NOWHERE`. stop_run
          takes a run id, which is unique across projects. */
       /* `project`, or `projectPath` for a caller that has not moved to the one spelling. */
-      const named = doorContext(args).project
-      const project = name === 'stop_run' ? null : projectIn(named)
-      if (name !== 'stop_run' && project === null) return text(refusedProject(named), true)
+      const at: Project | null = name === 'stop_run' ? null : await projectIn(doorContext(args).project)
+      if (at && at.project === null) return text(at.why, true)
+      const project = at?.project ?? null
+      /* After a followed move, the answer says so, and the agent uses the new path from then on. */
+      const followed = at?.project && at.movedFrom ? DOOR_PROJECT_SAYS.followed(at.movedFrom, at.project) : null
+      const said = (words: string, isError = false) => text(followed ? `${words}\n\n${followed}` : words, isError)
 
-      if (name === 'how_tested') return text(suitesText(project as string))
+      if (name === 'how_tested') return said(suitesText(project as string))
 
       if (name === 'configure_suite') {
         const out = configure(project, {
@@ -386,9 +399,9 @@ async function mcp(rpc: Rpc): Promise<Reply> {
           timeoutMs: args.timeoutMs,
           by: str(args.agent, MAX_BY) || AGENT,
         })
-        if (!out.ok) return text(out.error, true)
+        if (!out.ok) return said(out.error, true)
         suitesChanged(project)
-        return text(
+        return said(
           isConfirmed(project, out.suite)
             ? `Configured:\n${spell(out.suite)}\n\nIts command and directory are as a person confirmed them. Nothing has run yet. run_tests ${out.suite.name} starts it.`
             : `Configured:\n${spell(out.suite)}\n\nNothing has run yet, and it will not until a person confirms it. ${AWAITS} Tell them; after that, run_tests ${out.suite.name} starts it.`,
@@ -397,9 +410,9 @@ async function mcp(rpc: Rpc): Promise<Reply> {
 
       if (name === 'forget_suite') {
         const out = forget(project, str(args.name, BOUNDS.NAME))
-        if (!out.ok) return text(out.error ?? 'it did not work', true)
+        if (!out.ok) return said(out.error ?? 'it did not work', true)
         suitesChanged(project)
-        return text(`"${str(args.name, BOUNDS.NAME)}" is off the list. Runs already recorded against it are kept.`)
+        return said(`"${str(args.name, BOUNDS.NAME)}" is off the list. Runs already recorded against it are kept.`)
       }
 
       if (name === 'run_tests') {
@@ -409,12 +422,12 @@ async function mcp(rpc: Rpc): Promise<Reply> {
           ref: str(args.ref, MAX_REF),
           by: str(args.agent, MAX_BY) || AGENT,
         })
-        if (!started.ok) return text(started.error, true)
+        if (!started.ok) return said(started.error, true)
         const asked = typeof args.waitMs === 'number' && Number.isFinite(args.waitMs) ? args.waitMs : 120_000
         const waitMs = Math.min(MAX_WAIT_MS, Math.max(0, Math.round(asked)))
         const where = started.run.ref ? ` for ${started.run.ref}` : ' (for no particular reference)'
         if (waitMs === 0) {
-          return text(
+          return said(
             `Started ${started.run.suite}${where}: ${started.run.command.join(' ')} in ${started.run.dir}. Run id ${started.run.id}. Read it later with test_runs.`,
           )
         }
@@ -424,7 +437,7 @@ async function mcp(rpc: Rpc): Promise<Reply> {
              still going, and an agent told "timed out" would reasonably think
              something went wrong with the suite rather than with its own
              patience. */
-          return text(
+          return said(
             `${started.run.suite} is still running after ${Math.round(waitMs / 1000)}s — that is this call's patience running out, not the suite's timeout. Run id ${started.run.id}; test_runs will have the verdict.`,
           )
         }
@@ -433,15 +446,15 @@ async function mcp(rpc: Rpc): Promise<Reply> {
            and with the tail attached so it has something to act on. A timeout is
            `isError` too: nothing was proved. */
         const wrong = done.verdict !== 'passed'
-        return text(`${tellRun(done)}${done.dropped ? `\n(${done.dropped} earlier lines not kept)` : ''}\n\n${body}`, wrong)
+        return said(`${tellRun(done)}${done.dropped ? `\n(${done.dropped} earlier lines not kept)` : ''}\n\n${body}`, wrong)
       }
 
       if (name === 'test_runs') {
         const ref = str(args.ref, MAX_REF)
-        if (ref) return text(tellRef(project as string, ref))
+        if (ref) return said(tellRef(project as string, ref))
         const refs = knownRefs(project)
-        if (!refs.length) return text('Nothing has been run against any reference in this project yet.')
-        return text(
+        if (!refs.length) return said('Nothing has been run against any reference in this project yet.')
+        return said(
           refs
             .map((r) => {
               const s = standingFor(project, r)
@@ -455,8 +468,8 @@ async function mcp(rpc: Rpc): Promise<Reply> {
       if (name === 'stop_run') {
         const id = str(args.id, MAX_ID)
         const out = end(id, 'stopped', 'stopped over the MCP door.')
-        if (!out.ok) return text(out.error ?? 'it did not work', true)
-        return text(`${id}: asked to stop. It ends as "stopped", not "failed" — nothing was learned about the code.`)
+        if (!out.ok) return said(out.error ?? 'it did not work', true)
+        return said(`${id}: asked to stop. It ends as "stopped", not "failed" — nothing was learned about the code.`)
       }
     } catch (e) {
       /* A refusal is an answer, and the sentence is the useful half. So it comes
@@ -514,7 +527,8 @@ export async function answer(
     /* One project's, named by `?project=` — the page takes it off
        `kehikot.context.projectPath`. With none, `nowhere` says so and the page
        draws that rather than an empty list of suites. */
-    const project = projectIn(query.get('project'))
+    const at = await projectIn(query.get('project'))
+    const project = at.project
     const named = str(query.get('project'), MAX_PROJECT)
     return ok({
       ok: true,
@@ -531,7 +545,7 @@ export async function answer(
          reference's card, so without this it would be on the page while it was going and
          nowhere at all from the moment it had an answer. */
       loose: standingFor(project, '').bySuite.filter((one) => one.verdict !== 'running'),
-      trouble: named ? suiteTrouble(named) : null,
+      trouble: named ? (at.project === null ? at.why : suiteTrouble(at.project)) : null,
     })
   }
 
@@ -545,13 +559,13 @@ export async function answer(
        It must never be quietly left out: a missing row looks exactly like a row
        that was never meant to be there, and "nothing has been run for this" is
        the single most important thing this module has to be able to say. */
-    const project = projectIn(query.get('project'))
+    const project = (await projectIn(query.get('project'))).project
     return ok({ ok: true, standings: asked.map((ref) => standingFor(project, ref)) })
   }
 
   if (method === 'GET' && path === '/api/run') {
     const id = str(query.get('id'), MAX_ID)
-    const found = findRun(projectIn(query.get('project')), id)
+    const found = findRun((await projectIn(query.get('project'))).project, id)
     return found ? ok({ ok: true, run: found }) : bad('there is no run with that id here', 404)
   }
 
@@ -568,8 +582,10 @@ export async function answer(
     if (!body) return bad('that was not a request')
 
     if (path === '/api/run') {
+      const at = await projectIn(body.project)
+      if (at.project === null) return bad(`nothing was started. ${at.why}`, 409)
       const started = begin({
-        project: str(body.project, MAX_PROJECT),
+        project: at.project,
         suite: str(body.suite, BOUNDS.NAME),
         ref: str(body.ref, MAX_REF),
         by: OWNER,
@@ -587,8 +603,9 @@ export async function answer(
      * the page's: an agent cannot confirm what it configured.
      */
     if (path === '/api/confirm') {
-      const project = projectIn(body.project)
-      if (project === null) return bad(refusedProject(body.project))
+      const at = await projectIn(body.project)
+      const project = at.project
+      if (project === null) return bad(at.why)
       const name = str(body.suite, BOUNDS.NAME)
       const found = findSuite(project, name)
       if (!found) return bad(`there is no suite called "${name}" in this project, so there is nothing to confirm.`, 404)
@@ -640,7 +657,9 @@ export function stream(
      opened the stream printed it. */
   const stranger = refuseTicket(query.get('ticket') ?? ticket, TICKET, 'that stream was not opened by this app’s own page')
   if (stranger) return { reply: stranger }
-  /* The stream is one project's: a page standing in one project is never shown another's runs. */
+  /* The stream is one project's: a page standing in one project is never shown another's runs. It
+     reads and writes nothing in the project, and matches a run by the project's key (`attach`), so
+     it needs no word from the host and keeps working for a run that began before a rename. */
   return { close: attach({ write: (event, data) => emit(data, event) }, projectOf(query.get('project'))) }
 }
 

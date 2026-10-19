@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path'
 
-import { KEHIKOT_DIR, moduleDir, moduleFile, projectFile, readProjectFile, within } from 'kehikot-module-protocol'
+import { KEHIKOT_DIR, moduleDir, moduleFile, projectFile, projectKey, readProjectFile, within } from 'kehikot-module-protocol'
 
 import { ID } from './manifest.ts'
 
@@ -277,6 +277,15 @@ export function projectIdOf(root: string): string | null {
   } catch {
     return null
   }
+}
+
+/**
+ * What state that outlives a request is keyed by for this project: its id when it has one, else its
+ * path (`projectKey`). A map from path to state goes stale the moment the folder is renamed; the id
+ * does not. Read from the file, so it holds for a path the host has not been asked about.
+ */
+export function keyOf(root: string): string {
+  return projectKey({ projectId: projectIdOf(root), projectPath: root })?.key ?? root
 }
 
 /** A directory as a person reads it and as `spawn` is handed it: the stored relative one under the project as it is now. */
