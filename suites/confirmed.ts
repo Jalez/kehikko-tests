@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-import { moduleFolder } from 'kehikot-module-protocol'
+import { moduleFolder, projectKey } from 'kehikot-module-protocol'
 import { registryDir } from 'kehikot-module-protocol/serve'
 
 import { ID } from '../manifest.ts'
-import { projectOf } from '../store.ts'
+import { projectIdOf, projectOf } from '../store.ts'
 
 /**
  * Which commands a person has confirmed, on this machine.
@@ -35,8 +35,22 @@ import { projectOf } from '../store.ts'
  *
  *     <Kehikot machine folder>/module-state/tests/confirmed.json
  *
- * keyed by the project's real path, so a project that was moved or copied is
- * unconfirmed where it now is. `TESTS_CONFIRMED_DIR` moves it (the tests point
+ * keyed by the project's permanent id (`.kehikot/project.json`, protocol
+ * 2.1.0) when the host has given it one — `id:<id>` — and by its real path
+ * while it has not. So a project that is renamed or moved keeps its
+ * confirmations; a copy is unconfirmed where it now is, because a host gives a
+ * copy carrying the same id a fresh one, and a `git clone` never carries the
+ * file (it is gitignored always). The id is a random UUID that is never
+ * committed, so a project somebody hands you cannot know another project's.
+ *
+ * What a fingerprint is of is the command and the directory RELATIVE to the
+ * project (`''` for the folder itself), so it too survives the move.
+ *
+ * Confirmations kept under the path are moved to the id the first time the
+ * project is seen with one, for the path it has NOW; ones kept under a path the
+ * project no longer has cannot be matched and are left (a person confirms
+ * again). A fingerprint of the old absolute directory is carried over to the
+ * relative one when the suites file is read (`upgradeConfirmed`). `TESTS_CONFIRMED_DIR` moves it (the tests point
  * it at a temporary directory); a scratch server that sets `KEHIKOT_MODULES_DIR`
  * gets a scratch one beside its scratch registry without doing anything.
  *
@@ -53,9 +67,56 @@ export function confirmedDir(env: Record<string, string | undefined> = process.e
 
 const file = () => join(confirmedDir(), 'confirmed.json')
 
-/** What is confirmed is exactly this: the argument array and the directory, in a form two spellings cannot share. */
-export function fingerprint(suite: { command: readonly string[]; dir: string }): string {
-  return createHash('sha256').update(JSON.stringify({ command: suite.command, dir: suite.dir })).digest('hex')
+/**
+ * What is confirmed is exactly this: the argument array and the directory, in a form two spellings cannot share.
+ * The directory is the one relative to the project (`rel`) when the suite has one, so a move does not change it.
+ */
+export function fingerprint(suite: { command: readonly string[]; dir: string; rel?: string | null }): string {
+  const dir = typeof suite.rel === 'string' ? suite.rel : suite.dir
+  return createHash('sha256').update(JSON.stringify({ command: suite.command, dir })).digest('hex')
+}
+
+/**
+ * The key one project's confirmations are kept under, moving what was kept
+ * under its current path to its id the first time it has one. Null for no project.
+ */
+function keyOf(projectPath: string | null | undefined, kept: Kept): { key: string; moved: boolean } | null {
+  const root = projectOf(projectPath)
+  if (root === null) return null
+  const key = projectKey({ projectId: projectIdOf(root), projectPath: root })
+  if (key === null) return null
+  if (key.by === 'path') return { key: key.key, moved: false }
+  const byId = `id:${key.key}`
+  const byPath = kept[root]
+  if (!byPath) return { key: byId, moved: false }
+  kept[byId] = { ...byPath, ...(kept[byId] ?? {}) }
+  delete kept[root]
+  return { key: byId, moved: true }
+}
+
+/** Write what was moved to the id; a failure costs a person a press, never a run. */
+function settle(kept: Kept, moved: boolean): void {
+  if (!moved) return
+  try {
+    write(kept)
+  } catch {
+    /* Moved again next time. */
+  }
+}
+
+/**
+ * Carry a confirmation of a suite's old fingerprint over to its new one: the
+ * same command in the same directory, spelled relative instead of absolute.
+ * Only an exact match is carried; anything else stays unconfirmed.
+ */
+export function upgradeConfirmed(projectPath: string, name: string, was: string, now: string): void {
+  const kept = read()
+  const at = keyOf(projectPath, kept)
+  if (at === null) return
+  const mine = kept[at.key]
+  if (!mine || mine[name] !== was || was === now) return settle(kept, at.moved)
+  mine[name] = now
+  settle(kept, true)
 }
 
 function read(): Kept {
@@ -87,32 +148,36 @@ function write(kept: Kept): void {
 }
 
 /** Has a person confirmed this suite, as it is now, in this project, on this machine? */
-export function isConfirmed(projectPath: string | null | undefined, suite: { name: string; command: readonly string[]; dir: string }): boolean {
-  const project = projectOf(projectPath)
-  if (project === null) return false
-  const mine = read()[project]
+type Confirmable = { name: string; command: readonly string[]; dir: string; rel?: string | null }
+
+export function isConfirmed(projectPath: string | null | undefined, suite: Confirmable): boolean {
+  const kept = read()
+  const at = keyOf(projectPath, kept)
+  if (at === null) return false
+  settle(kept, at.moved)
+  const mine = kept[at.key]
   return mine !== undefined && Object.hasOwn(mine, suite.name) && mine[suite.name] === fingerprint(suite)
 }
 
 /** Keep a person's confirmation of one suite as it is now. Only the page's own door calls this. */
-export function keepConfirmed(projectPath: string | null | undefined, suite: { name: string; command: readonly string[]; dir: string }): boolean {
-  const project = projectOf(projectPath)
-  if (project === null) return false
+export function keepConfirmed(projectPath: string | null | undefined, suite: Confirmable): boolean {
   const kept = read()
-  kept[project] = { ...(kept[project] ?? {}), [suite.name]: fingerprint(suite) }
+  const at = keyOf(projectPath, kept)
+  if (at === null) return false
+  kept[at.key] = { ...(kept[at.key] ?? {}), [suite.name]: fingerprint(suite) }
   write(kept)
   return true
 }
 
 /** A suite that was taken off the list is no longer confirmed: one configured under its name later is a new one. */
 export function dropConfirmed(projectPath: string | null | undefined, name: string): void {
-  const project = projectOf(projectPath)
-  if (project === null) return
   const kept = read()
-  const mine = kept[project]
-  if (!mine || !Object.hasOwn(mine, name)) return
+  const at = keyOf(projectPath, kept)
+  if (at === null) return
+  const mine = kept[at.key]
+  if (!mine || !Object.hasOwn(mine, name)) return settle(kept, at.moved)
   delete mine[name]
-  if (!Object.keys(mine).length) delete kept[project]
+  if (!Object.keys(mine).length) delete kept[at.key]
   try {
     write(kept)
   } catch {

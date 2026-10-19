@@ -1,11 +1,11 @@
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
-import { isAbsolute, normalize } from 'node:path'
+import { isAbsolute, normalize, relative } from 'node:path'
 import { z } from 'zod'
 
 import { within } from 'kehikot-module-protocol'
 
-import { adopt, claim, makeDir, NOWHERE, place, projectOf } from '../store.ts'
-import { dropConfirmed, fingerprint, isConfirmed } from './confirmed.ts'
+import { adopt, claim, makeDir, NOWHERE, place, placedDir, projectOf, storedDir } from '../store.ts'
+import { dropConfirmed, fingerprint, isConfirmed, upgradeConfirmed } from './confirmed.ts'
 
 /**
  * How this project is tested, as this app holds it.
@@ -48,8 +48,11 @@ import { dropConfirmed, fingerprint, isConfirmed } from './confirmed.ts'
  *   argv array, because the shell that would have parsed the `&&` is not there.
  *   The first element is the program and is not allowed to be empty or to be a
  *   path traversal.
- * - **`dir`** — absolute, normalised, and checked to be an existing directory
- *   AT CONFIGURATION TIME. It is checked again at run time in `spawn.ts`,
+ * - **`dir`** — given absolute, checked to be an existing directory inside the
+ *   project AT CONFIGURATION TIME, and STORED RELATIVE to the project folder
+ *   (`''` for the folder itself), so a project that is renamed or moved keeps
+ *   its suites. It is resolved under the project as it is now on every read;
+ *   see `storedDir` in `../store.ts` for the ones written before that. It is checked again at run time in `spawn.ts`,
  *   because a directory that existed when somebody configured a suite in March
  *   is not a directory that exists now, and the refusal a person wants is "that
  *   directory is gone" rather than a spawn error about ENOENT on a binary.
@@ -100,7 +103,17 @@ const suiteSchema = z.object({
   by: z.string(),
   at: z.string(),
 })
-export type Suite = z.infer<typeof suiteSchema>
+type Stored = z.infer<typeof suiteSchema>
+
+/**
+ * A suite as everything outside this file sees it: `dir` is absolute, under the
+ * project as it is now; `rel` is what is stored, relative to the project
+ * folder — or `null` for a directory written before directories were kept
+ * relative that cannot be placed in the project as it is now (it was renamed
+ * or moved, and the folder below it is not here). Such a suite keeps its old
+ * absolute `dir`, does not run, and `unplaced` says why.
+ */
+export type Suite = Stored & { rel: string | null }
 
 const storeSchema = z.object({
   suites: z.record(z.string(), suiteSchema).default({}),
@@ -153,11 +166,61 @@ function read(projectPath: string | null | undefined): Store {
   if (!('path' in at)) return empty()
   const path = at.path
   if (!existsSync(path)) return empty()
+  let store: Store
   try {
-    return storeSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+    store = storeSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
   } catch {
     return empty()
   }
+  /* Directories written absolute — before they were kept relative — are made
+     relative to the project as it is now, once, and written back. A person's
+     confirmation of the suite as it was is carried over to the new spelling of
+     the same command in the same directory (`upgradeConfirmed`). One that cannot
+     be placed is left as it was written, and says so when asked to run. */
+  let changed = false
+  for (const one of Object.values(store.suites)) {
+    if (!isAbsolute(one.dir)) continue
+    const rel = storedDir(at.root, one.dir)
+    if (rel === null) continue
+    upgradeConfirmed(at.root, one.name, fingerprint({ command: one.command, dir: one.dir }), fingerprint({ command: one.command, dir: rel }))
+    one.dir = rel
+    changed = true
+  }
+  if (changed) {
+    try {
+      writeFileSync(path, `${JSON.stringify(storeSchema.parse(store), null, 2)}\n`)
+    } catch {
+      /* Read relative all the same; it is written next time anything is. */
+    }
+  }
+  return store
+}
+
+/** A stored suite as it is handed out: its directory under the project as it is now. */
+function outward(root: string, one: Stored): Suite {
+  if (isAbsolute(one.dir)) return { ...one, rel: null }
+  return { ...one, dir: placedDir(root, one.dir), rel: one.dir }
+}
+
+/** The project folder suites are resolved under, or null. */
+function rootOf(projectPath: string | null | undefined): string | null {
+  const at = where(projectPath)
+  return 'path' in at ? at.root : null
+}
+
+/**
+ * Why a suite cannot be run where it is configured because the project moved
+ * since, or null. Said wherever a suite is refused for its directory.
+ */
+export function unplaced(projectPath: string | null | undefined, one: Suite): string | null {
+  if (one.rel !== null) return null
+  const root = projectOf(projectPath)
+  return (
+    `"${one.name}" was configured to run in ${one.dir}, before this app kept a suite's directory relative to its project, `
+    + `and that is not inside this project as it is now${root ? ` (${root})` : ''}: the project was renamed or moved since, `
+    + 'and the same folder could not be found inside it. Nothing was started. Configure the suite again with configure_suite '
+    + 'to say where in this project it runs.'
+  )
 }
 
 /**
@@ -197,13 +260,20 @@ function save(projectPath: string | null | undefined, store: Store): string | nu
 
 /** Every suite configured for this project, by name. */
 export function suites(projectPath: string | null | undefined): Suite[] {
-  return Object.values(read(projectPath).suites).sort((a, b) => a.name.localeCompare(b.name))
+  const root = rootOf(projectPath)
+  if (root === null) return []
+  return Object.values(read(projectPath).suites)
+    .map((one) => outward(root, one))
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** One suite, or null. This is the lookup the run door uses and the only one. */
 export function suite(projectPath: string | null | undefined, name: string): Suite | null {
+  const root = rootOf(projectPath)
+  if (root === null) return null
   const all = read(projectPath).suites
-  return Object.hasOwn(all, name) ? (all[name] ?? null) : null
+  const one = Object.hasOwn(all, name) ? all[name] : undefined
+  return one ? outward(root, one) : null
 }
 
 export type Configured = { ok: true; suite: Suite } | { ok: false; error: string }
@@ -310,20 +380,24 @@ export function configure(projectPath: string | null | undefined, input: {
   const asked = typeof input.timeoutMs === 'number' && Number.isFinite(input.timeoutMs) ? input.timeoutMs : BOUNDS.TIMEOUT_DEFAULT_MS
   const timeoutMs = Math.min(BOUNDS.TIMEOUT_MAX_MS, Math.max(BOUNDS.TIMEOUT_MIN_MS, Math.round(asked)))
 
+  /* Kept relative to the project, as the disk resolves both: `outsideProject` has just said it is inside. */
+  const root = rootOf(projectPath) as string
+  const rel = relative(root, realpathSync(at))
+
   const store = read(projectPath)
-  const suite: Suite = {
+  const kept: Stored = {
     name,
     what,
     command,
-    dir: at,
+    dir: rel,
     timeoutMs,
     by: (typeof input.by === 'string' ? input.by.trim().slice(0, BOUNDS.BY) : '') || 'an agent',
     at: new Date().toISOString(),
   }
-  store.suites[name] = suite
+  store.suites[name] = kept
   const refused = save(projectPath, store)
   if (refused) return { ok: false, error: `nothing was configured. ${refused}` }
-  return { ok: true, suite }
+  return { ok: true, suite: outward(root, kept) }
 }
 
 /** Take a suite off the list. Runs already recorded against it are left alone. */
