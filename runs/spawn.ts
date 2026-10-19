@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 
-import { NOWHERE, projectOf } from '../store.ts'
+import { resolveFolder } from '../host-ask.ts'
+import { keyOf, NOWHERE, projectOf } from '../store.ts'
 import { isConfirmed } from '../suites/confirmed.ts'
 import { AWAITS, outsideProject, suite as findSuite, suites, unplaced } from '../suites/store.ts'
 import { fold, NOTHING, type Counts } from './counts.ts'
@@ -95,7 +96,8 @@ export type Event =
   /** The suites of a project, or which of them are confirmed, changed. Nothing about what: the page reads again. */
   | { kind: 'suites'; project: string }
 
-type Listener = (event: Event) => void
+/** `key` is the project's (`keyOf`): what to match an event to a page by, because the path an event carries is the one the run last knew. */
+type Listener = (event: Event, key: string) => void
 
 const listeners = new Set<Listener>()
 
@@ -114,13 +116,13 @@ export function subscribe(fn: Listener): () => void {
   return () => listeners.delete(fn)
 }
 
-function tell(event: Event): void {
+function tell(event: Event, key: string = keyOf(event.project)): void {
   for (const fn of [...listeners]) {
     /* One bad listener must not stop the others hearing, and must not stop the
        run. A listener here is an SSE response that may have been closed by a
        browser half a millisecond ago. */
     try {
-      fn(event)
+      fn(event, key)
     } catch {
       /* ignore */
     }
@@ -130,12 +132,18 @@ function tell(event: Event): void {
 /** Say that a project's suites changed, to every page standing in it. */
 export function suitesChanged(projectPath: string | null | undefined): void {
   const project = projectOf(projectPath)
-  if (project !== null) tell({ kind: 'suites', project })
+  if (project !== null) tell({ kind: 'suites', project }, keyOf(project))
 }
 
 interface Live {
-  /** The project this run's suite was configured in, and where its record is written. Resolved. */
+  /**
+   * The project this run's suite was configured in: the folder it was last known at, resolved, and
+   * where its record is written while that is still the project. `follow` moves it when the folder
+   * is renamed under a run; `settle` finds it when the run ends first.
+   */
   project: string
+  /** The project's key (`keyOf`): its id when it has one. What a run is matched to a project by. */
+  key: string
   run: Run
   child: ChildProcess
   timer: ReturnType<typeof setTimeout>
@@ -151,10 +159,22 @@ interface Live {
 
 const live = new Map<string, Live>()
 
+/**
+ * Say where a project is now: every run of it that this process holds is there, whatever folder it
+ * began in. Called with a path the host vouched for (`projectIn` in `doors.ts`, and `begin`), which is
+ * how a run in progress at the moment of a rename comes to be recorded in the renamed folder.
+ */
+export function follow(project: string | null | undefined): void {
+  const root = projectOf(project)
+  if (root === null) return
+  const key = keyOf(root)
+  for (const l of live.values()) if (l.key === key) l.project = root
+}
+
 /** Every run alive right now, with what it has said so far. */
 export function active(project?: string | null): { project: string; run: Run; lines: string[]; dropped: number }[] {
   return [...live.values()]
-    .filter((l) => project === undefined || l.project === project)
+    .filter((l) => project === undefined || (project !== null && l.key === keyOf(project)))
     .map((l) => ({ project: l.project, run: { ...l.run, tail: l.lines }, lines: l.lines, dropped: l.dropped }))
 }
 
@@ -169,7 +189,8 @@ export function isLive(id: string): boolean {
  * suites are two suites in two directories and may run side by side.
  */
 export function runningSuite(project: string | null, name: string): Run | null {
-  for (const l of live.values()) if (l.project === project && l.run.suite === name) return l.run
+  const key = project === null ? null : keyOf(project)
+  for (const l of live.values()) if (key !== null && l.key === key && l.run.suite === name) return l.run
   return null
 }
 
@@ -185,6 +206,7 @@ export type Begun = { ok: true; run: Run } | { ok: false; error: string }
 export function begin(input: { project: string | null | undefined; suite: string; ref?: string; by?: string }): Begun {
   const project = projectOf(input.project)
   if (project === null) return { ok: false, error: `nothing was started. ${NOWHERE}` }
+  follow(project)
   const name = String(input.suite ?? '').slice(0, 40)
   const found = findSuite(project, name)
   if (!found) {
@@ -296,12 +318,13 @@ export function begin(input: { project: string | null | undefined; suite: string
        and both end as `crashed` with the message the operating system gave. */
     const dead: Run = { ...run, verdict: 'crashed', endedAt: new Date().toISOString(), tail: [String(e)] }
     record(project, dead)
-    tell({ kind: 'ended', project, run: dead })
+    tell({ kind: 'ended', project, run: dead }, keyOf(project))
     return { ok: false, error: `"${name}" could not be started: ${e instanceof Error ? e.message : String(e)}` }
   }
 
   const state: Live = {
     project,
+    key: keyOf(project),
     run,
     child,
     counts: { ...NOTHING },
@@ -329,7 +352,7 @@ export function begin(input: { project: string | null | undefined; suite: string
      only from the live stream would mean a page loaded one second too late
      reports that nothing was ever run. */
   record(project, run)
-  tell({ kind: 'started', project, run })
+  tell({ kind: 'started', project, run }, state.key)
 
   child.stdout?.on('data', (chunk: Buffer) => take(id, 'out', chunk))
   child.stderr?.on('data', (chunk: Buffer) => take(id, 'err', chunk))
@@ -402,11 +425,11 @@ function say(id: string, stream: 'out' | 'err', raw: string): void {
   }
   const was = l.counts
   l.counts = fold(was, text)
-  tell({ kind: 'line', project: l.project, id, stream, text })
+  tell({ kind: 'line', project: l.project, id, stream, text }, l.key)
   if (l.counts.passed !== was.passed || l.counts.failed !== was.failed) {
     /* Sent as it changes rather than only at the end, because watching the
        numbers move is the difference between a progress bar and a spinner. */
-    tell({ kind: 'counts', project: l.project, id, passed: l.counts.passed, failed: l.counts.failed })
+    tell({ kind: 'counts', project: l.project, id, passed: l.counts.passed, failed: l.counts.failed }, l.key)
   }
 }
 
@@ -470,10 +493,35 @@ function finish(id: string, verdict: Verdict): void {
     dropped: l.dropped,
   }
   live.delete(id)
-  record(l.project, done)
-  tell({ kind: 'ended', project: l.project, run: done })
-  for (const w of waiting.get(id) ?? []) w(done)
-  waiting.delete(id)
+  const settled = (project: string | null) => {
+    /* Recorded where the project is NOW. A run whose project could not be found is told, not written:
+       nothing is put under a folder the host does not vouch for. */
+    if (project !== null) record(project, done)
+    tell({ kind: 'ended', project: project ?? l.project, run: done }, l.key)
+    for (const w of waiting.get(id) ?? []) w(done)
+    waiting.delete(id)
+  }
+  if (stillThere(l)) settled(l.project)
+  else void settle(l).then(settled, () => settled(null))
+}
+
+/** Whether the folder a run began in (or was last told of) is still its project: there, and with the same key. */
+function stillThere(l: Live): boolean {
+  return existsSync(l.project) && keyOf(l.project) === l.key
+}
+
+/**
+ * Where a run's project is now, when its folder is no longer where the run was: asked of the host,
+ * which follows a former path to the project's folder once, after an id check. Null when the host does
+ * not say, or says a folder that is not the same project.
+ */
+async function settle(l: Live): Promise<string | null> {
+  const at = await resolveFolder(l.project)
+  if (!at.ok) return null
+  const root = projectOf(at.path)
+  if (root === null || keyOf(root) !== l.key) return null
+  l.project = root
+  return root
 }
 
 /**
