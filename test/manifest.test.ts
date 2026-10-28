@@ -38,9 +38,9 @@ test('live:read is the only capability asked for', () => {
   expect(MANIFEST.declares.uses).toEqual(['live:read'])
 })
 
-test('there is one epic-scoped mode and an MCP door', () => {
+test('there is one mode, at project (protocol 2.29.0), and an MCP door', () => {
   expect(MANIFEST.modes).toHaveLength(1)
-  expect(MANIFEST.modes[0]?.scope).toBe('epic')
+  expect(MANIFEST.modes[0]?.scope).toBe('project')
   expect(MANIFEST.mcp?.url).toBe('/mcp')
 })
 

@@ -117,10 +117,11 @@ export const PREFERRED_PORT = 7900
  *
  * ## The mode
  *
- * One epic-scoped mode, which becomes an ordinary tab in the mode row beside
- * every other module's. `scope: 'epic'` is what makes a host send
- * `kehikot.context` on load and on every switch, and that context is the only
- * inbound channel carrying the selection this page keys everything to.
+ * One mode, at `project` (protocol 2.29.0): the suites and runs are the
+ * project's (`.kehikot/tests/`), whatever epic is open. A host sends
+ * `kehikot.context` on load and on every switch to every container, and that
+ * context is the only inbound channel carrying the selection this page keys
+ * everything to.
  *
  * ## Storage, and why THIS module asks for it
  *
@@ -196,7 +197,10 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     'says it is tested. If a run fails, report the verdict and the output, and do not re-run until ' +
     'it is green while changing nothing.',
   entry: '/app',
-  modes: [{ id: 'tests', label: 'Tests', scope: 'epic' }],
+  /* What its content belongs to (protocol 2.29.0): one mode per scope, the default first. */
+  modes: [
+    { id: 'tests', label: 'Tests', scope: 'project', scopeSays: 'how this project is tested, and the runs against the references picked out' },
+  ],
   mcp: {
     url: '/mcp',
     transport: 'http',
