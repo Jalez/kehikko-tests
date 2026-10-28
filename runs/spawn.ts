@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 
+import { personEnv } from 'kehikot-module-protocol/serve'
+
 import { resolveFolder } from '../host-ask.ts'
 import { keyOf, NOWHERE, projectOf } from '../store.ts'
 import { isConfirmed } from '../suites/confirmed.ts'
@@ -297,7 +299,9 @@ export function begin(input: { project: string | null | undefined; suite: string
      * The line the whole module is arranged around.
      *
      * A program and an argv array, `shell: false`, a `cwd` that was validated
-     * twice, and this process's environment. Nothing in this call is built by
+     * twice, and this process's environment as the person's (`personEnv`: without
+     * the host's own `bun` first on its PATH and `BUN_BE_BUN`, so a suite's
+     * `bun test` is the person's Bun and never boots the host). Nothing in this call is built by
      * concatenating anything: `found.command` came out of the store as an array
      * and goes to `spawn` as an array.
      *
@@ -309,7 +313,7 @@ export function begin(input: { project: string | null | undefined; suite: string
       shell: false,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: process.env,
+      env: personEnv(),
     })
   } catch (e) {
     /* `spawn` mostly reports failure on a later tick rather than throwing, so

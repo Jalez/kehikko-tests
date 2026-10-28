@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 
 import type { Run } from '../runs/store.ts'
 
@@ -71,6 +71,7 @@ beforeAll(() => {
   define('slow2', ['sh', '-c', 'sleep 60'], 30_000)
   define('slow3', ['sh', '-c', 'sleep 60'], 30_000)
   define('nosuch', ['this-program-does-not-exist-anywhere'])
+  define('which-bun', ['sh', '-c', 'command -v bun; bun --version; echo "1 pass"'])
 })
 
 async function runTo(suite: string, ref = ''): Promise<Run> {
@@ -95,6 +96,36 @@ test('a suite that exits non-zero is failed, and its stderr is kept', async () =
   expect(done.verdict).toBe('failed')
   expect(done.exitCode).toBe(1)
   expect(done.tail.join('\n')).toContain('1 fail')
+})
+
+test('a suite runs the person’s bun, not the one the host put first on this module’s PATH', async () => {
+  /* The host's shim and Bun's own node shim, each a `bun` that is this module's runtime. */
+  const hostShim = join(here, 'kehikot-bun-1')
+  const bunNode = join(here, 'bun-node-502-x')
+  for (const dir of [hostShim, bunNode]) {
+    mkdirSync(dir)
+    symlinkSync(process.execPath, join(dir, 'bun'))
+  }
+  symlinkSync(process.execPath, join(bunNode, 'node'))
+  const person = join(here, 'person')
+  mkdirSync(person)
+  writeFileSync(join(person, 'bun'), '#!/bin/sh\necho person-bun\n')
+  chmodSync(join(person, 'bun'), 0o755)
+  const before = { PATH: process.env.PATH, KEHIKOT_HOST_PATH: process.env.KEHIKOT_HOST_PATH, BUN_BE_BUN: process.env.BUN_BE_BUN }
+  process.env.PATH = [bunNode, hostShim, person, '/usr/bin', '/bin'].join(delimiter)
+  process.env.KEHIKOT_HOST_PATH = hostShim
+  process.env.BUN_BE_BUN = '1'
+  let done: Run
+  try {
+    done = await runTo('which-bun')
+  } finally {
+    for (const [name, value] of Object.entries(before)) {
+      if (value === undefined) Reflect.deleteProperty(process.env, name)
+      else process.env[name] = value
+    }
+  }
+  expect(done.verdict).toBe('passed')
+  expect(done.tail.slice(0, 2)).toEqual([join(person, 'bun'), 'person-bun'])
 })
 
 test('the run is recorded against the reference it was run for', () => {
