@@ -17,6 +17,7 @@ import type { Listed } from '../suites/store.ts'
 import { confirm as confirmSuite, run as startRun, standings, stop as stopRun, type Live } from '@/store/ask.ts'
 import { useRuns } from '@/store/use-runs.ts'
 import { fallbackShows, HeaderFallback, headerDrawn, rememberHeaderDrawn } from '@/view/header-fallback.tsx'
+import { footerItems } from '@/footer.ts'
 import { headerOf, keyOf } from '@/header.ts'
 import { useKehikot, type GotoHandler } from '@/wire/use-kehikot.ts'
 import { Log } from '@/view/log.tsx'
@@ -138,7 +139,7 @@ export function App() {
     answer(true, '')
   }, [])
 
-  const { sight, where, selection, project, epic, parts, resize, header, drawsHeader } = useKehikot(ID, onGoto, (press) => {
+  const { sight, where, selection, project, epic, parts, resize, header, drawsHeader, footer, drawsFooter } = useKehikot(ID, onGoto, (press) => {
     rememberHeaderDrawn()
     setPressed(true)
     return pressing.current(press)
@@ -329,6 +330,31 @@ export function App() {
     }
     return stopRun(what.id).then((answer) => (answer.ok ? undefined : (answer.error ?? 'It could not be stopped.')))
   }
+  /*
+   * The footer the host draws, when it draws one (2.38.0): the run slots, how the newest runs came
+   * out, how many references are shown, and what went wrong. The page then drops the lines it drew
+   * above the cards for those. An older host draws no footer, and the page keeps them.
+   */
+  const footed = drawsFooter === true
+  const footerSaid = footed
+    ? JSON.stringify(
+        cover
+          ? []
+          : footerItems({
+              busy,
+              slots,
+              detached,
+              verdicts: [...newest.values()].filter((v): v is NonNullable<typeof v> => Boolean(v)),
+              shown: cards.length,
+              selected: selection.length > 0,
+              trouble: state?.trouble || refused || null,
+            }),
+      )
+    : null
+  useEffect(() => {
+    if (footerSaid) footer(JSON.parse(footerSaid))
+  }, [footer, footerSaid])
+
   /* Drawn by the page itself where nobody frames it, or no host has pressed one of these items yet. */
   const fallback = fallbackShows(where, drawsHeader, pressed) && declared.items.length > 0
 
@@ -364,8 +390,8 @@ export function App() {
 
       {/* Kept mounted under a cover, so a pick, or a stop somebody was halfway through confirming, is still there when the server is. */}
       <div hidden={cover !== null} className="flex min-w-0 flex-col gap-2">
-      {state?.trouble ? <p className={TROUBLE}>{state.trouble}</p> : null}
-      {refused ? <p className={TROUBLE}>{refused}</p> : null}
+      {state?.trouble && !footed ? <p className={TROUBLE}>{state.trouble}</p> : null}
+      {refused && !footed ? <p className={TROUBLE}>{refused}</p> : null}
 
       {/*
         Whether the page is actually live, said rather than implied, and what
@@ -378,7 +404,7 @@ export function App() {
         stopped moving. It is said only once the stream has actually dropped:
         a stream still opening for the first time is not one that stopped.
       */}
-      {busy || detached ? (
+      {(busy || detached) && !footed ? (
         <div className={`flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 ${SAID}`}>
           {!detached ? (
             <>
@@ -398,11 +424,11 @@ export function App() {
 
       {cards.length ? (
         <>
-          <p className={SAID}>
+          {footed ? null : <p className={SAID}>
             {selection.length
               ? `${cards.length === 1 ? 'One reference is' : `${cards.length} references are`} selected on the canvas.`
               : `Showing ${cards.length === 1 ? 'a reference' : `${cards.length} references`} you picked here. Selecting on a canvas replaces this.`}
-          </p>
+          </p>}
           {cards.map((s) => (
             <RefCard
               key={s.ref}

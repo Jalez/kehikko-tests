@@ -82,6 +82,10 @@ export interface Kehikot {
   header: Host['header']
   /** The host's own word on whether it draws this container's header (1.4.0): `null` from a host that says nothing. */
   drawsHeader: boolean | null
+  /** Declare the container's footer (`kehikot.footer`, 2.38.0). Only when `drawsFooter` is true. */
+  footer: Host['footer']
+  /** Whether the host draws this page's declared footer; anything but `true` means no. */
+  drawsFooter: boolean | null
 }
 
 /**
@@ -98,7 +102,8 @@ export function useKehikot(id: string, onGoto: GotoHandler, onPress?: HostEvents
   /* How many greetings there have been. A greeting always re-asks, whatever the epic: see below. */
   const [greetings, setGreetings] = useState(0)
   const host = useHost(id, { onGoto, onHello: () => setGreetings((n) => n + 1), ...(onPress ? { onPress } : {}) })
-  const { where, epic, projectPath: project, parts, request, resize, selection, header, drawsHeader } = host
+  const { where, epic, projectPath: project, parts, request, resize, selection, header, drawsHeader, footer } = host
+  const drawsFooter = where === 'hosted' ? host.drawsFooter : null
 
   /* The host's answer about ONE epic, or null before there is a question out. */
   const [reading, setReading] = useState<Extract<Sight, { epic: string }> | null>(null)
@@ -168,7 +173,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onPress?: HostEvents
   }, [where, epic, reading])
 
   return useMemo(
-    () => ({ sight, where, selection, project, epic, parts, resize, header, drawsHeader }),
-    [sight, where, selection, project, epic, parts, resize, header, drawsHeader],
+    () => ({ sight, where, selection, project, epic, parts, resize, header, drawsHeader, footer, drawsFooter }),
+    [sight, where, selection, project, epic, parts, resize, header, drawsHeader, footer, drawsFooter],
   )
 }
